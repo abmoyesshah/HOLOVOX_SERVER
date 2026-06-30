@@ -1,0 +1,42 @@
+{
+  "name": "backenedboilerplate",
+  "version": "1.0.0",
+  "description": "simple boiler plate",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js"
+  },
+  "keywords": [
+    "Backened"
+  ],
+  "author": "EmadKhan",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.97.0",
+    "@deepgram/sdk": "^3.13.0",
+    "@getbrevo/brevo": "^3.0.1",
+    "axios": "^1.18.0",
+    "bcrypt": "^5.1.1",
+    "cloudinary": "^2.4.0",
+    "compression": "^1.8.1",
+    "cookieparser": "^0.1.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "livekit-server-sdk": "^2.15.2",
+    "mongoose": "^8.6.1",
+    "morgan": "^1.10.1",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.9.15",
+    "nodemon": "^3.1.4",
+    "pdf2json": "^4.0.3",
+    "resend": "^6.12.2",
+    "socket.io": "^4.8.3",
+    "stripe": "^17.4.0"
+  }
+}

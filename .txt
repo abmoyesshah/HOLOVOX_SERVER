@@ -1,0 +1,46 @@
+const sendOtp = asyncHandler(async(req,res)=>{
+  
+})
+Hello World
+
+// const updateUser = asyncHandler(async(req,res)=>{
+//     const { userId, Headline,phoneNumber,location,website,languages,FullLegalName,Nationality,bio,callRates,Government_issued_ID,Professional_license,Category_Credential } = req.body;
+//   //  if (!userId  || !Headline || !phoneNumber || !location || !website || !languages || !FullLegalName ||!Nationality || !bio || !callRates || !Government_issued_ID|| !Professional_license|| !Category_Credential  ) throw new ApiError(400, "All fields are required");
+//   console.log(userId, Headline,phoneNumber,location,website,languages,FullLegalName,Nationality,bio,callRates,Government_issued_ID,Professional_license,Category_Credential)
+//   if (!userId) {
+//   throw new ApiError(400, "UserId is required");
+// }
+//   const user = await Profile.findById(userId);
+//    if (!user) {
+//     throw new ApiError(400, "User does not exist...");
+//   }
+
+//   //   const imageFile = req.file;
+//   //  if (!imageFile) {
+//   //   throw new ApiError(400, "profileImage is required...");
+//   // }
+//   // const image = await uploadOnCloudinary(imageFile.buffer);
+//   //   if (!image?.url) {
+//   //   throw new ApiError(400, "Failed to upload Image...");
+//   // }
+//   let imageUrl;
+
+// if (req.file) {
+//   const image = await uploadOnCloudinary(req.file.buffer);
+//   if (!image?.url) {
+//     throw new ApiError(400, "Failed to upload Image...");
+//   }
+//   imageUrl = image.url;
+// }
+//  const updatedUser = await Profile.findByIdAndUpdate(
+//       userId,
+//       { ProfilePicture: imageUrl , Headline,phoneNumber,location,website,languages,FullLegalName,Nationality,bio, callRates, Government_issued_ID,Professional_license,Category_Credential },
+//       { new: true }
+//     ).select("-password").lean();
+//   return res.status(200).json(
+//     new ApiResponse(
+//       200,
+//       "Profile Updated Successfully..."
+//     )
+//   );
+//   })
