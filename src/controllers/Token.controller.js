@@ -2,12 +2,12 @@ import { AccessToken } from "livekit-server-sdk";
 import { asyncHandler } from "../utils/AsyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { RoomServiceClient } from "livekit-server-sdk";
-import  Meeting  from "../models/Meeting.model.js";
+import Meeting from "../models/Meeting.model.js";
 
 const roomService = new RoomServiceClient(
   process.env.LIVEKIT_URL,
   process.env.LIVEKIT_API_KEY,
-  process.env.LIVEKIT_API_SECRET
+  process.env.LIVEKIT_API_SECRET,
 );
 
 export const muteParticipantTrack = asyncHandler(async (req, res) => {
@@ -20,7 +20,6 @@ export const muteParticipantTrack = asyncHandler(async (req, res) => {
 
   return res.status(200).json({ success: true });
 });
-
 
 export const exchangeToken = asyncHandler(async (req, res) => {
   const { roomId, userId, isHost, name, image } = req.body;
@@ -36,6 +35,16 @@ export const exchangeToken = asyncHandler(async (req, res) => {
   // Validation
   if (!roomId || !name) {
     throw new ApiError(400, "Missing roomId or name");
+  }
+  const identity = userId || `guest_${Math.floor(Math.random() * 10000)}`;
+  const meeting = await Meeting.findOne({ meetingId: roomId }).select(
+    "blockedParticipants",
+  );
+  if (meeting?.blockedParticipants?.includes(String(identity))) {
+    throw new ApiError(
+      403,
+      "You have been removed from this meeting and cannot rejoin",
+    );
   }
 
   const apiKey = process.env.LIVEKIT_API_KEY;
@@ -62,8 +71,7 @@ export const exchangeToken = asyncHandler(async (req, res) => {
     canPublish: true,
     canSubscribe: true,
     canPublishData: true,
-    canUpdateOwnMetadata: true
-
+    canUpdateOwnMetadata: true,
   });
 
   const token = await at.toJwt();
@@ -84,39 +92,41 @@ export const removeParticipant = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Missing requesterId");
   }
 
-  // 1. Look up the meeting and confirm the REQUESTER is actually the host.
-  //    Never trust an isHost flag sent from the client.
   const meeting = await Meeting.findOne({ meetingId: roomId });
   if (!meeting) {
     throw new ApiError(404, "Meeting not found");
   }
 
-  const hostId = String(
-    meeting.hostId || meeting.host || meeting.createdBy || meeting.userId || ""
-  );
-
+  const hostId = String(meeting.hostId || "");
   if (!hostId || hostId !== String(requesterId)) {
     throw new ApiError(403, "Only the meeting host can remove participants");
   }
 
-  // 2. Don't let a host remove themselves via this route (optional but sane).
   if (String(targetIdentity) === String(requesterId)) {
     throw new ApiError(400, "You can't remove yourself");
   }
 
-  // 3. Actually kick them from the LiveKit room.
+  // Kick them from the live LiveKit room first
   try {
     await roomService.removeParticipant(roomId, targetIdentity);
   } catch (err) {
-    // LiveKit throws if the participant already disconnected — treat that as a no-op success
-    if (err?.status === 404 || err?.code === 404 || /not found/i.test(err?.message || "")) {
-      return res
-        .status(200)
-        .json({ success: true, message: "Participant already left the room" });
+    if (
+      err?.status === 404 ||
+      err?.code === 404 ||
+      /not found/i.test(err?.message || "")
+    ) {
+      // already disconnected — fine, still proceed to block them below
+    } else {
+      console.error("removeParticipant failed:", err);
+      throw new ApiError(500, "Failed to remove participant");
     }
-    console.error("removeParticipant failed:", err);
-    throw new ApiError(500, "Failed to remove participant");
   }
+
+  // 👇 persist the ban so they can't just fetch a new token and rejoin
+  await Meeting.updateOne(
+    { meetingId: roomId },
+    { $addToSet: { blockedParticipants: String(targetIdentity) } },
+  );
 
   return res.status(200).json({ success: true });
 });

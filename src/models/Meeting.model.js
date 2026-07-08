@@ -70,7 +70,12 @@ const MeetingSchema = new mongoose.Schema(
     },
 
     participants: [ParticipantSchema], // host + clients
+    blockedParticipants: {
+      type: [String], // stores the LiveKit identity (userId or guestId) that was removed
+      default: [],
+    },
   },
+  
   {
     timestamps: true,
   }
