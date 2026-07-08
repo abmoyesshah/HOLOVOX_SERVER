@@ -5,7 +5,7 @@ import { RoomServiceClient } from "livekit-server-sdk";
 import Meeting from "../models/Meeting.model.js";
 
 const roomService = new RoomServiceClient(
-  process.env.LIVEKIT_URL,
+  process.env.NEXT_PUBLIC_LIVEKIT_URL,
   process.env.LIVEKIT_API_KEY,
   process.env.LIVEKIT_API_SECRET,
 );
