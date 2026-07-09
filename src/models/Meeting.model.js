@@ -27,9 +27,9 @@ const ParticipantSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
-  end:{
-    type : Boolean,
-    default : false,
+  end: {
+    type: Boolean,
+    default: false,
   },
   token: {
     type: String,
@@ -49,21 +49,21 @@ const MeetingSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "HolovoxUser",
       required: true,
-        index: true,
+      index: true,
     },
     meetingTitle: {
       type: String,
       default: "Untitled Meeting",
     },
-    meetingDate : {
+    meetingDate: {
       type: Date,
       default: Date.now,
-    },  
-    time:{
+    },
+    time: {
       type: String,
       default: "00:00",
     },
-    upcoming:{
+    upcoming: {
       type: Boolean,
       default: false,
       index: true,
@@ -74,13 +74,37 @@ const MeetingSchema = new mongoose.Schema(
       type: [String], // stores the LiveKit identity (userId or guestId) that was removed
       default: [],
     },
+    // inside MeetingSchema, alongside blockedParticipants
+    waitingParticipants: {
+      type: [
+        {
+          identity: { type: String, required: true },
+          name: String,
+          image: String,
+          requestedAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
+    admittedParticipants: {
+      type: [String], // LiveKit identities the host has let in
+      default: [],
+    },
+    isLocked: {
+  type: Boolean,
+  default: false,
+},
+    deniedParticipants: {
+      type: [String],
+      default: [],
+    },
   },
-  
+
   {
     timestamps: true,
-  }
+  },
 );
-MeetingSchema.index({ hostId : 1 ,upcoming: -1 });
+MeetingSchema.index({ hostId: 1, upcoming: -1 });
 const MeetingModel =
   mongoose.models.Meeting || mongoose.model("Meeting", MeetingSchema);
 
