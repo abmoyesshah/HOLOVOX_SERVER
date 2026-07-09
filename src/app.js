@@ -13,6 +13,10 @@ const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
 });
+const meetingLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120,            // ~2 requests/sec sustained, per IP
+});
 import compression from "compression";
 import morgan from "morgan";
 
@@ -78,5 +82,8 @@ app.use("/api/v1/", AiAssistantRouter);
 app.use("/api/v1/", TranscribeLiveRouter);
 app.use("/api/v1/", UploadRecordingRouter);
 app.use("/api/v1/", AnalyticsRouter);
+app.use("/api/v1/", meetingLimiter, TokenRouter);
+app.use("/api/v1/", meetingLimiter, MeetingRouter);
+app.use("/api/v1/", meetingLimiter, MeetingMxgRouter);
 
 export default app;

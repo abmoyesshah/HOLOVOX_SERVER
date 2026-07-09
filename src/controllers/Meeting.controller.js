@@ -1,9 +1,19 @@
 import MeetingModel from "../models/Meeting.model.js";
 import sendMail from "../utils/Nodemailer.js";
-const shareMeetingTemplate = (meetingLink, meetingId = null, hostName = "Holovox Host", hostEmail = "host@holovox.com", title, time) => {
+import bcrypt from "bcrypt";
+
+const shareMeetingTemplate = (
+  meetingLink,
+  meetingId = null,
+  hostName = "Holovox Host",
+  hostEmail = "host@holovox.com",
+  title,
+  time,
+) => {
   // Generate a meeting ID if not provided
-  const displayMeetingId = meetingId || Math.floor(1000000000 + Math.random() * 9000000000);
-  
+  const displayMeetingId =
+    meetingId || Math.floor(1000000000 + Math.random() * 9000000000);
+
   return `
   <!DOCTYPE html>
   <html>
@@ -44,14 +54,17 @@ const shareMeetingTemplate = (meetingLink, meetingId = null, hostName = "Holovox
                 
                 <div style="font-size:14px;color:#333333;line-height:1.8;">
                   <div><strong>Topic:</strong> ${title || "Holovox Session"}</div>
-                  <div><strong>Time:</strong> ${time || new Date().toLocaleString('en-US', { 
-                    weekday: 'long', 
-                    month: 'long', 
-                    day: 'numeric', 
-                    year: 'numeric',
-                    hour: '2-digit', 
-                    minute: '2-digit'
-                  })}</div>
+                  <div><strong>Time:</strong> ${
+                    time ||
+                    new Date().toLocaleString("en-US", {
+                      weekday: "long",
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  }</div>
                   <div><strong>Host:</strong> ${hostName}</div>
                   <div style="margin-top:12px;">
                     <strong>Meeting URL:</strong><br>
@@ -109,6 +122,7 @@ export const createMeeting = async (req, res) => {
       date,
       time,
       upcoming,
+      password,
     } = req.body;
 
     console.log("Create Meeting Payload:", {
@@ -127,6 +141,12 @@ export const createMeeting = async (req, res) => {
         error: "Missing required fields",
       });
     }
+    let hashedPassword = null;
+    let passwordProtected = false;
+    if (password && String(password).trim() !== "") {
+      hashedPassword = await bcrypt.hash(String(password).trim(), 10);
+      passwordProtected = true;
+    }
 
     const meeting = await MeetingModel.create({
       meetingId,
@@ -135,16 +155,17 @@ export const createMeeting = async (req, res) => {
       meetingDate: date ? new Date(date) : new Date(),
       time: time || "00:00",
       upcoming: upcoming !== undefined ? upcoming : false,
+      password: hashedPassword, // <-- add this
+      passwordProtected, // <-- add this
       participants: [
         {
-          userId:hostId,
+          userId: hostId,
           name,
           email,
           role: "host",
         },
       ],
     });
-
     return res.status(201).json({
       success: true,
       meeting,
@@ -158,8 +179,6 @@ export const createMeeting = async (req, res) => {
 };
 export const getMeetings = async (req, res) => {
   try {
-
-
     const email = req.query.email;
     console.log("Get Meetings Query:", { email });
     // 🔍 If email provided → single meeting
@@ -191,7 +210,7 @@ export const getMeetings = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-  
+
       message: error.message,
     });
   }
@@ -277,10 +296,70 @@ export const validateMeeting = async (req, res) => {
     });
   }
 };
+
+export const checkMeetingPassword = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const meeting = await MeetingModel.findOne({ meetingId: roomId }).select(
+      "passwordProtected",
+    );
+    if (!meeting)
+      return res
+        .status(404)
+        .json({ success: false, message: "Meeting not found" });
+    return res
+      .status(200)
+      .json({
+        success: true,
+        passwordProtected: Boolean(meeting.passwordProtected),
+      });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const setMeetingPassword = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { hostId, password } = req.body;
+    if (!hostId)
+      return res
+        .status(400)
+        .json({ success: false, message: "hostId is required" });
+
+    const meeting = await MeetingModel.findOne({ meetingId: roomId });
+    if (!meeting)
+      return res
+        .status(404)
+        .json({ success: false, message: "Meeting not found" });
+    if (String(meeting.hostId) !== String(hostId)) {
+      return res
+        .status(403)
+        .json({
+          success: false,
+          message: "Only the meeting host can set a meeting password",
+        });
+    }
+
+    if (password && String(password).trim() !== "") {
+      meeting.password = await bcrypt.hash(String(password).trim(), 10);
+      meeting.passwordProtected = true;
+    } else {
+      meeting.password = null;
+      meeting.passwordProtected = false;
+    }
+
+    await meeting.save();
+    return res
+      .status(200)
+      .json({ success: true, passwordProtected: meeting.passwordProtected });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
 export const joinMeeting = async (req, res) => {
   try {
-
-    const { userId, meetingId, name, email,token } = req.body;
+    const { userId, meetingId, name, email, token } = req.body;
 
     console.log("Join Meeting Payload:", {
       userId,
@@ -306,12 +385,12 @@ export const joinMeeting = async (req, res) => {
             name,
             email: email || "",
             role: userId ? "participant" : "guest",
-            end : false,
+            end: false,
             token: token || "",
           },
         },
       },
-      { new: true }
+      { new: true },
     );
 
     if (!meeting) {
@@ -336,14 +415,7 @@ export const updateMeeting = async (req, res) => {
   try {
     const { meetingId } = req.params;
 
-    const {
-      meetingTitle,
-      date,
-      time,
-      name,
-      email,
-      upcoming,
-    } = req.body;
+    const { meetingTitle, date, time, name, email, upcoming } = req.body;
 
     console.log("Update Meeting Payload:", {
       meetingId,
@@ -392,7 +464,7 @@ export const updateMeeting = async (req, res) => {
     // 👤 Update host info inside participants (first participant = host)
     if (name || email) {
       const hostIndex = meeting.participants.findIndex(
-        (p) => p.role === "host"
+        (p) => p.role === "host",
       );
 
       if (hostIndex !== -1) {
@@ -470,9 +542,18 @@ export const endMeeting = async (req, res) => {
 
 export const shareMeeting = async (req, res) => {
   try {
-    const { meetingLink, emails, meetingId, hostName, hostEmail, title, time  } = req.body;
+    const { meetingLink, emails, meetingId, hostName, hostEmail, title, time } =
+      req.body;
 
-    console.log("📨 Share Meeting Request:", { meetingLink, emails, meetingId, hostName, hostEmail, title, time  });
+    console.log("📨 Share Meeting Request:", {
+      meetingLink,
+      emails,
+      meetingId,
+      hostName,
+      hostEmail,
+      title,
+      time,
+    });
     console.log("📧 EMAIL_FROM:", process.env.EMAIL_FROM);
 
     // Validate inputs
@@ -486,8 +567,8 @@ export const shareMeeting = async (req, res) => {
     // Handle emails
     let emailList = [];
     if (Array.isArray(emails)) {
-      emailList = emails.filter(email => email && email.trim() !== '');
-    } else if (typeof emails === 'string') {
+      emailList = emails.filter((email) => email && email.trim() !== "");
+    } else if (typeof emails === "string") {
       emailList = [emails];
     }
 
@@ -502,8 +583,8 @@ export const shareMeeting = async (req, res) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const validEmails = [];
     const invalidEmails = [];
-    
-    emailList.forEach(email => {
+
+    emailList.forEach((email) => {
       const trimmedEmail = email.trim();
       if (emailRegex.test(trimmedEmail)) {
         validEmails.push(trimmedEmail);
@@ -515,7 +596,7 @@ export const shareMeeting = async (req, res) => {
     if (validEmails.length === 0) {
       return res.status(400).json({
         success: false,
-        message: `No valid email addresses found. Invalid: ${invalidEmails.join(', ')}`,
+        message: `No valid email addresses found. Invalid: ${invalidEmails.join(", ")}`,
       });
     }
 
@@ -525,7 +606,7 @@ export const shareMeeting = async (req, res) => {
     for (const email of validEmails) {
       try {
         console.log(`📧 Sending email to ${email}...`);
-        
+
         // Pass all parameters to the template
         const emailHtml = shareMeetingTemplate(
           meetingLink,
@@ -533,25 +614,25 @@ export const shareMeeting = async (req, res) => {
           hostName || "Holovox Host",
           hostEmail || "host@holovox.com",
           title || "Holovox Session",
-          time || new Date().toLocaleString('en-US', { 
-            weekday: 'long', 
-            month: 'long', 
-            day: 'numeric', 
-            year: 'numeric',
-            hour: '2-digit', 
-            minute: '2-digit'
-          })
-          
+          time ||
+            new Date().toLocaleString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
         );
-        
+
         await sendMail(
           email,
           "You're Invited to a Holovox Meeting",
           emailHtml,
-          process.env.EMAIL_FROM
+          process.env.EMAIL_FROM,
         );
-        
-        results.push({ email, status: 'sent' });
+
+        results.push({ email, status: "sent" });
         console.log(`✅ Email sent to ${email}`);
       } catch (error) {
         console.error(`❌ Failed to send to ${email}:`, error.message);
@@ -581,7 +662,6 @@ export const shareMeeting = async (req, res) => {
       message: `Meeting shared successfully with ${results.length} recipient(s)`,
       data: { sent: results },
     });
-
   } catch (error) {
     console.error("❌ Share meeting error:", error);
     return res.status(500).json({
@@ -604,7 +684,7 @@ export const getUniqueParticipants = async (req, res) => {
 
     // 🔥 Find all meetings of this host
     const meetings = await MeetingModel.find({
-       "participants.userId": hostId,
+      "participants.userId": hostId,
     });
 
     // 🔥 Store unique participants
@@ -612,7 +692,6 @@ export const getUniqueParticipants = async (req, res) => {
 
     meetings.forEach((meeting) => {
       meeting.participants.forEach((participant) => {
-
         // ❌ Skip host
         // if (participant.role === "host") return;
 
@@ -621,10 +700,8 @@ export const getUniqueParticipants = async (req, res) => {
 
         // ❌ Skip if no userId
         if (!participant.userId) return;
-          // ❌ Skip yourself
-        if (
-          participant.userId.toString() === hostId
-        ) {
+        // ❌ Skip yourself
+        if (participant.userId.toString() === hostId) {
           return;
         }
 
@@ -644,16 +721,13 @@ export const getUniqueParticipants = async (req, res) => {
       });
     });
 
-    const participants = Array.from(
-      uniqueParticipantsMap.values()
-    );
+    const participants = Array.from(uniqueParticipantsMap.values());
 
     return res.status(200).json({
       success: true,
       count: participants.length,
       participants,
     });
-
   } catch (error) {
     return res.status(500).json({
       success: false,
@@ -662,13 +736,12 @@ export const getUniqueParticipants = async (req, res) => {
   }
 };
 
-
 // import MeetingModel from "../models/Meeting.model.js";
 // import sendMail from "../utils/Nodemailer.js";
 // const shareMeetingTemplate = (meetingLink, meetingId = null, hostName = "Holovox Host", hostEmail = "host@holovox.com", title, time) => {
 //   // Generate a meeting ID if not provided
 //   const displayMeetingId = meetingId || Math.floor(1000000000 + Math.random() * 9000000000);
-  
+
 //   return `
 //   <!DOCTYPE html>
 //   <html>
@@ -682,7 +755,7 @@ export const getUniqueParticipants = async (req, res) => {
 //       <tr>
 //         <td align="center">
 //           <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:8px;border:1px solid #e5e5e5;box-shadow:0 1px 3px rgba(0,0,0,0.06);max-width:600px;width:100%;">
-            
+
 //             <!-- HEADER -->
 //             <tr>
 //               <td style="padding:30px 30px 20px 30px;border-bottom:1px solid #e5e5e5;">
@@ -694,7 +767,7 @@ export const getUniqueParticipants = async (req, res) => {
 //             <!-- BODY -->
 //             <tr>
 //               <td style="padding:30px;">
-                
+
 //                 <!-- GREETING -->
 //                 <p style="font-size:14px;color:#333333;margin:0 0 16px 0;line-height:1.5;">
 //                   Hi there,
@@ -706,15 +779,15 @@ export const getUniqueParticipants = async (req, res) => {
 
 //                 <!-- MEETING DETAILS - Simple text format like Zoom -->
 //                 <div style="font-size:16px;font-weight:600;color:#E51A54;margin-bottom:12px;">Join Holovox Meeting</div>
-                
+
 //                 <div style="font-size:14px;color:#333333;line-height:1.8;">
 //                   <div><strong>Topic:</strong> ${title || "Holovox Session"}</div>
-//                   <div><strong>Time:</strong> ${time || new Date().toLocaleString('en-US', { 
-//                     weekday: 'long', 
-//                     month: 'long', 
-//                     day: 'numeric', 
+//                   <div><strong>Time:</strong> ${time || new Date().toLocaleString('en-US', {
+//                     weekday: 'long',
+//                     month: 'long',
+//                     day: 'numeric',
 //                     year: 'numeric',
-//                     hour: '2-digit', 
+//                     hour: '2-digit',
 //                     minute: '2-digit'
 //                   })}</div>
 //                   <div><strong>Host:</strong> ${hostName}</div>
@@ -733,7 +806,6 @@ export const getUniqueParticipants = async (req, res) => {
 //                 </div>
 
 //                 <!-- JOIN BY TELEPHONE - Simple text like Zoom -->
-                
 
 //               </td>
 //             </tr>
@@ -745,8 +817,8 @@ export const getUniqueParticipants = async (req, res) => {
 //                   © ${new Date().getFullYear()} Holovox. All rights reserved.
 //                 </div>
 //                 <div style="font-size:11px;color:#999999;text-align:center;margin-top:4px;">
-//                   <a href="#" style="color:#E51A54;text-decoration:none;margin:0 8px;">Privacy</a> | 
-//                   <a href="#" style="color:#E51A54;text-decoration:none;margin:0 8px;">Terms</a> | 
+//                   <a href="#" style="color:#E51A54;text-decoration:none;margin:0 8px;">Privacy</a> |
+//                   <a href="#" style="color:#E51A54;text-decoration:none;margin:0 8px;">Terms</a> |
 //                   <a href="#" style="color:#E51A54;text-decoration:none;margin:0 8px;">Support</a>
 //                 </div>
 //                 <div style="font-size:10px;color:#999999;text-align:center;margin-top:6px;">
@@ -824,7 +896,6 @@ export const getUniqueParticipants = async (req, res) => {
 // export const getMeetings = async (req, res) => {
 //   try {
 
-
 //     const email = req.query.email;
 //     console.log("Get Meetings Query:", { email });
 //     // 🔍 If email provided → single meeting
@@ -856,12 +927,11 @@ export const getUniqueParticipants = async (req, res) => {
 //   } catch (error) {
 //     return res.status(500).json({
 //       success: false,
-  
+
 //       message: error.message,
 //     });
 //   }
 // };
-
 
 // export const validateMeeting = async (req, res) => {
 //   try {
@@ -1123,7 +1193,7 @@ export const getUniqueParticipants = async (req, res) => {
 //     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 //     const validEmails = [];
 //     const invalidEmails = [];
-    
+
 //     emailList.forEach(email => {
 //       const trimmedEmail = email.trim();
 //       if (emailRegex.test(trimmedEmail)) {
@@ -1146,7 +1216,7 @@ export const getUniqueParticipants = async (req, res) => {
 //     for (const email of validEmails) {
 //       try {
 //         console.log(`📧 Sending email to ${email}...`);
-        
+
 //         // Pass all parameters to the template
 //         const emailHtml = shareMeetingTemplate(
 //           meetingLink,
@@ -1154,24 +1224,24 @@ export const getUniqueParticipants = async (req, res) => {
 //           hostName || "Holovox Host",
 //           hostEmail || "host@holovox.com",
 //           title || "Holovox Session",
-//           time || new Date().toLocaleString('en-US', { 
-//             weekday: 'long', 
-//             month: 'long', 
-//             day: 'numeric', 
+//           time || new Date().toLocaleString('en-US', {
+//             weekday: 'long',
+//             month: 'long',
+//             day: 'numeric',
 //             year: 'numeric',
-//             hour: '2-digit', 
+//             hour: '2-digit',
 //             minute: '2-digit'
 //           })
-          
+
 //         );
-        
+
 //         await sendMail(
 //           email,
 //           "You're Invited to a Holovox Meeting",
 //           emailHtml,
 //           process.env.EMAIL_FROM
 //         );
-        
+
 //         results.push({ email, status: 'sent' });
 //         console.log(`✅ Email sent to ${email}`);
 //       } catch (error) {

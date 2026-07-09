@@ -10,7 +10,9 @@ import {
   shareMeeting, 
   updateMeeting, 
   validateMeeting,
-  deleteMeeting
+  deleteMeeting,
+  checkMeetingPassword,
+setMeetingPassword
 } from "../controllers/Meeting.controller.js";
 
 const router = Router();
@@ -44,6 +46,8 @@ router.post("/shareMeetingLink", shareMeeting);
 router.get("/unique-participants/:hostId", getUniqueParticipants);
 router.put("/end-meeting/:roomId", endMeeting);
 router.get("/validate-meeting/:roomId", validateMeeting);
+router.get("/meeting-password/:roomId", checkMeetingPassword);
+router.put("/meeting-password/:roomId", setMeetingPassword);
 router.delete('/meeting', deleteMeeting);
 
 // ✅ MUST have default export

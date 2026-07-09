@@ -3,7 +3,8 @@ import { asyncHandler } from "../utils/AsyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { RoomServiceClient } from "livekit-server-sdk";
 import Meeting from "../models/Meeting.model.js";
-
+import bcrypt from "bcrypt";
+import mongoose from "mongoose";
 const roomService = new RoomServiceClient(
   process.env.NEXT_PUBLIC_LIVEKIT_URL,
   process.env.LIVEKIT_API_KEY,
@@ -22,7 +23,7 @@ export const muteParticipantTrack = asyncHandler(async (req, res) => {
 });
 
 export const exchangeToken = asyncHandler(async (req, res) => {
-  const { roomId, userId, isHost, name, image } = req.body;
+  const { roomId, userId, isHost, name, image, password } = req.body;
 
   if (!roomId || !name) {
     throw new ApiError(400, "Missing roomId or name");
@@ -30,8 +31,8 @@ export const exchangeToken = asyncHandler(async (req, res) => {
   const identity = userId || `guest_${Math.floor(Math.random() * 10000)}`;
 
   const meeting = await Meeting.findOne({ meetingId: roomId }).select(
-    "blockedParticipants admittedParticipants waitingParticipants hostId isLocked",
-  );
+  "blockedParticipants admittedParticipants waitingParticipants hostId isLocked passwordProtected password",
+);
 
   if (meeting?.blockedParticipants?.includes(String(identity))) {
     throw new ApiError(
@@ -43,12 +44,27 @@ export const exchangeToken = asyncHandler(async (req, res) => {
   const isAlreadyAdmitted =
     isHost || meeting?.admittedParticipants?.includes(String(identity));
 
-  // Locked meeting: reject anyone who isn't the host and hasn't already
-  // been admitted before the lock went on. Previously-admitted users can
-  // still reconnect (e.g. brief network drop) even while locked.
+  if (!isAlreadyAdmitted && meeting?.passwordProtected) {
+    if (!password || String(password).trim() === "") {
+      return res.status(401).json({ status: "password_required" });
+    }
+
+    const isPasswordValid = await bcrypt.compare(
+      String(password).trim(),
+      meeting.password || "",
+    );
+
+    if (!isPasswordValid) {
+      return res.status(401).json({ status: "invalid_password" });
+    }
+  }
+
   if (!isAlreadyAdmitted && meeting?.isLocked) {
     return res.status(423).json({ status: "locked" });
   }
+  // Locked meeting: reject anyone who isn't the host and hasn't already
+  // been admitted before the lock went on. Previously-admitted users can
+  // still reconnect (e.g. brief network drop) even while locked.
 
   // Anyone who isn't the host and hasn't been admitted yet gets parked
   // in the waiting room instead of receiving a LiveKit token.
@@ -96,7 +112,17 @@ export const exchangeToken = asyncHandler(async (req, res) => {
       { $addToSet: { admittedParticipants: String(identity) } },
     );
   }
-
+if (meeting && mongoose.Types.ObjectId.isValid(identity)) {
+  try {
+    await Meeting.updateOne(
+      { meetingId: roomId, "participants.userId": identity },
+      { $set: { "participants.$[elem].end": false } },
+      { arrayFilters: [{ "elem.userId": identity }] },
+    );
+  } catch (err) {
+    console.error("Failed to reset participant end flag:", err);
+  }
+}
   const at = new AccessToken(apiKey, apiSecret, {
     identity,
     name,
@@ -238,9 +264,7 @@ export const getWaitingStatus = asyncHandler(async (req, res) => {
   if (!stillWaiting && meeting.isLocked) {
     return res.status(200).json({ status: "locked" });
   }
-  return res
-    .status(200)
-    .json({ status: stillWaiting ? "waiting" : "unknown" });
+  return res.status(200).json({ status: stillWaiting ? "waiting" : "unknown" });
 });
 
 export const setMeetingLock = asyncHandler(async (req, res) => {
@@ -252,7 +276,10 @@ export const setMeetingLock = asyncHandler(async (req, res) => {
   const meeting = await Meeting.findOne({ meetingId: roomId });
   if (!meeting) throw new ApiError(404, "Meeting not found");
   if (String(meeting.hostId) !== String(requesterId)) {
-    throw new ApiError(403, "Only the meeting host can lock or unlock the meeting");
+    throw new ApiError(
+      403,
+      "Only the meeting host can lock or unlock the meeting",
+    );
   }
 
   meeting.isLocked = locked;

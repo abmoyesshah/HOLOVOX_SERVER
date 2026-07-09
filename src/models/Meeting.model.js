@@ -91,12 +91,21 @@ const MeetingSchema = new mongoose.Schema(
       default: [],
     },
     isLocked: {
-  type: Boolean,
-  default: false,
-},
+      type: Boolean,
+      default: false,
+    },
     deniedParticipants: {
       type: [String],
       default: [],
+    },
+    password: {
+      type: String, // bcrypt hash, null if no password set
+      default: null,
+      select: false, // never returned by default queries
+    },
+    passwordProtected: {
+      type: Boolean, // lets clients know a password is required, without exposing the hash
+      default: false,
     },
   },
 
