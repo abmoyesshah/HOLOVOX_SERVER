@@ -33,7 +33,7 @@ router.get("/test-meeting", (req, res) => {
       "PUT /joinMeeting",
       "PUT /updateMeeting/:meetingId",
       "POST /shareMeetingLink",
-      "GET /shareQuotation",
+      "POST /shareQuotation",
       "DELETE /deleteMeetingForever/:meetingId",
       "POST /recoverMeeting/:meetingId",
       "GET /unique-participants/:hostId",
