@@ -15,6 +15,7 @@ const EventSchema = new mongoose.Schema(
         "meeting.created",
         "meeting.updated",
         "meeting.deleted",
+        "meeting.recovered",
         "meeting.started",
         "meeting.ended",
         "meeting.joined",

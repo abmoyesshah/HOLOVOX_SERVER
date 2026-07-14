@@ -12,7 +12,10 @@ import {
   validateMeeting,
   deleteMeeting,
   checkMeetingPassword,
-setMeetingPassword
+setMeetingPassword,
+getDeletedMeetings,
+deleteMeetingForever,
+recoverMeeting,
 } from "../controllers/Meeting.controller.js";
 
 const router = Router();
@@ -29,10 +32,13 @@ router.get("/test-meeting", (req, res) => {
       "PUT /joinMeeting",
       "PUT /updateMeeting/:meetingId",
       "POST /shareMeetingLink",
+      "DELETE /deleteMeetingForever/:meetingId",
+      "POST /recoverMeeting/:meetingId",
       "GET /unique-participants/:hostId",
       "PUT /end-meeting/:roomId",
       "GET /validate-meeting/:roomId",
-      "DELETE /deleteMeeting"
+      "DELETE /deleteMeeting",
+      "GET /getDeletedMeetings",
     ]
   });
 });
@@ -40,9 +46,12 @@ router.get("/test-meeting", (req, res) => {
 // ✅ All routes
 router.post("/createmeeting", createMeeting);
 router.get("/getMeeting", getMeetings);
+router.get("/getDeletedMeetings", getDeletedMeetings);
 router.put("/joinMeeting", joinMeeting);
 router.put("/updateMeeting/:meetingId", updateMeeting);
 router.post("/shareMeetingLink", shareMeeting);
+router.post("/recoverMeeting/:meetingId", recoverMeeting);
+router.delete("/deleteMeetingForever/:meetingId", deleteMeetingForever);
 router.get("/unique-participants/:hostId", getUniqueParticipants);
 router.put("/end-meeting/:roomId", endMeeting);
 router.get("/validate-meeting/:roomId", validateMeeting);

@@ -33,7 +33,7 @@ const ParticipantSchema = new mongoose.Schema({
   },
   token: {
     type: String,
-  },
+  }
 });
 
 const MeetingSchema = new mongoose.Schema(
@@ -68,6 +68,15 @@ const MeetingSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+
+    isDeleted: {
+    type: Boolean,
+    default: false,
+  },
+  deletedAt: {
+    type: Date,
+    default: null,
+  },
 
     participants: [ParticipantSchema], // host + clients
     blockedParticipants: {

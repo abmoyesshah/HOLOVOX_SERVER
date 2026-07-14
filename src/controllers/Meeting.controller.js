@@ -1,7 +1,7 @@
 import MeetingModel from "../models/Meeting.model.js";
 import sendMail from "../utils/Nodemailer.js";
 import bcrypt from "bcrypt";
-import Event from "../models/Event.model.js"
+import Event from "../models/Event.model.js";
 import Profile from "../models/Profile.model.js";
 
 const shareMeetingTemplate = (
@@ -168,17 +168,17 @@ export const createMeeting = async (req, res) => {
         },
       ],
     });
-     await Event.create({
-    userId: hostId,
-    type: "meeting.created",
-    entityId: meetingId,
-    title: "Meeting Created",
-    description: `"${meetingTitle}" has been scheduled`,
-    priority: "normal",
-    icon: "Calendar",
-    color: "blue",
-    actionLink: `/dashboard/meetings`,
-  });
+    await Event.create({
+      userId: hostId,
+      type: "meeting.created",
+      entityId: meetingId,
+      title: "Meeting Created",
+      description: `"${meetingTitle}" has been scheduled`,
+      priority: "normal",
+      icon: "Calendar",
+      color: "blue",
+      actionLink: `/dashboard/meetings`,
+    });
     return res.status(201).json({
       success: true,
       meeting,
@@ -214,7 +214,7 @@ export const getMeetings = async (req, res) => {
     }
 
     // 📋 all meetings
-    const meetings = await MeetingModel.find();
+    const meetings = await MeetingModel.find({isDeleted: false});
 
     return res.status(200).json({
       success: true,
@@ -228,6 +228,21 @@ export const getMeetings = async (req, res) => {
     });
   }
 };
+
+export const getDeletedMeetings = async (req,res)=> {
+  try {
+    const meetings = await MeetingModel.find({isDeleted: true});
+    return res.status(200).json({
+      success: true,
+      meetings,
+    })
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    })
+  }
+}
 
 // Delete meeting route
 export const deleteMeeting = async (req, res) => {
@@ -244,8 +259,15 @@ export const deleteMeeting = async (req, res) => {
       });
     }
 
-    // Find and delete the meeting
-    const deletedMeeting = await MeetingModel.findOneAndDelete({ meetingId });
+// ✅ Correct - this looks for meetingId field
+const deletedMeeting = await MeetingModel.findOneAndUpdate(
+  { meetingId: meetingId },
+  { 
+    isDeleted: true, 
+    deletedAt: new Date() 
+  },
+  { new: true }
+);
 
     // Check if meeting exists
     if (!deletedMeeting) {
@@ -262,7 +284,7 @@ export const deleteMeeting = async (req, res) => {
       type: "meeting.deleted",
       entityId: meetingId,
       title: "🗑️ Meeting Deleted",
-      description: `"${deletedMeeting.meetingTitle || 'Untitled Meeting'}" has been deleted`,
+      description: `"${deletedMeeting.meetingTitle || "Untitled Meeting"}" has been deleted - can be recovered from settings`,
       priority: "high",
       icon: "Trash2",
       color: "gray",
@@ -274,38 +296,58 @@ export const deleteMeeting = async (req, res) => {
         hostId: deletedMeeting.hostId,
       },
     });
-    // ✅ Create events for participants (if any)
-    if (deletedMeeting.participants && deletedMeeting.participants.length > 0) {
-      const hostEmail = deletedMeeting.participants.find((p) => p.role === "host")?.email;
-      
-      // Loop through each participant and create an event
-      for (const participant of deletedMeeting.participants) {
-        // Skip the host (they already got the deletion event above)
-        if (participant.role === "host") continue;
-        
-        await Event.create({
-          userId: participant.userId || participant._id,
-          type: "meeting.deleted",
-          entityId: meetingId,
-          title: "🗑️ Meeting Cancelled",
-          description: `"${deletedMeeting.meetingTitle || 'Untitled Meeting'}" has been cancelled by the host`,
-          priority: "high",
-          icon: "Trash2",
-          color: "gray",
-          actionLink: `/dashboard/meetings`,
-          metadata: {
-            meetingTitle: deletedMeeting.meetingTitle,
-            hostName: deletedMeeting.participants.find((p) => p.role === "host")?.name || "Host",
-            hostEmail: hostEmail,
-            meetingDate: deletedMeeting.meetingDate,
-            time: deletedMeeting.time,
-          },
-        });
-      }
-      
-      console.log(`✅ Created deletion notifications for ${deletedMeeting.participants.length - 1} participants`);
-    }
+if (deletedMeeting.participants && deletedMeeting.participants.length > 0) {
+  const hostEmail = deletedMeeting.participants.find(
+    (p) => p.role === "host",
+  )?.email;
 
+  const hostName = deletedMeeting.participants.find(
+    (p) => p.role === "host",
+  )?.name || "Host";
+
+  // ✅ Check if the meeting is upcoming (meetingDate is in the future)
+  const meetingDate = new Date(deletedMeeting.meetingDate);
+  const now = new Date();
+  const isUpcoming = meetingDate > now;
+
+  console.log(`📅 Meeting date: ${meetingDate}, Is upcoming: ${isUpcoming}`);
+
+  // Loop through each participant and create an event
+  for (const participant of deletedMeeting.participants) {
+    // Skip the host (they already got the deletion event above)
+    if (participant.role === "host") continue;
+
+    // ✅ Only create event if the meeting is upcoming
+    if (isUpcoming) {
+      await Event.create({
+        userId: participant.userId || participant._id,
+        type: "meeting.deleted",
+        entityId: meetingId,
+        title: "🗑️ Meeting Cancelled",
+        description: `"${deletedMeeting.meetingTitle || "Untitled Meeting"}" has been cancelled by the host`,
+        priority: "high",
+        icon: "Trash2",
+        color: "gray",
+        actionLink: `/dashboard/meetings`,
+        metadata: {
+          meetingTitle: deletedMeeting.meetingTitle,
+          hostName: hostName,
+          hostEmail: hostEmail,
+          meetingDate: deletedMeeting.meetingDate,
+          time: deletedMeeting.time,
+        },
+      });
+    } else {
+      console.log(
+        `⏭️ Skipping notification for ${participant.name || participant.email} - meeting is in the past`,
+      );
+    }
+  }
+
+  console.log(
+    `✅ Created deletion notifications for ${isUpcoming ? deletedMeeting.participants.length - 1 : 0} participants`,
+  );
+}
 
     return res.status(200).json({
       success: true,
@@ -323,6 +365,110 @@ export const deleteMeeting = async (req, res) => {
     });
   }
 };
+
+export const deleteMeetingForever = async(req, res) => {
+  try {
+     const { meetingId } = req.params;
+    if (!meetingId) {
+      return res.status(400).json({
+        success: false,
+        error: "meetingId is required",
+      });
+    }
+    const deletedMeeting = await MeetingModel.findOneAndDelete({meetingId});
+    if(!deletedMeeting){
+       return res.status(404).json({
+        success: false,
+        error: "Meeting not found",
+      });
+    }
+
+    console.log(`✅ Meeting ${meetingId} deleted successfully`);
+
+   await Event.create({
+  userId: deletedMeeting.hostId,
+  type: "meeting.recovered", // Keep the type as "meeting.deleted" or change to "meeting.recovered" if you add it to the enum
+  entityId: meetingId,
+  title: "♻️ Meeting Recovered",
+  description: `"${deletedMeeting.meetingTitle || "Untitled Meeting"}" has been recovered from the recycle bin`,
+  priority: "normal", // Changed from "high" to "normal"
+  icon: "RefreshCw", // Changed from "Trash2" to "RefreshCw"
+  color: "green", // Changed from "gray" to "green"
+  actionLink: `/dashboard/meetings`,
+  metadata: {
+    meetingTitle: deletedMeeting.meetingTitle,
+    meetingDate: deletedMeeting.meetingDate,
+    time: deletedMeeting.time,
+    hostId: deletedMeeting.hostId,
+  },
+});
+
+  } catch (error) {
+    console.error("Error deleting meeting permanently:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to delete meeting permanently",
+    });
+  }
+}
+
+export const recoverMeeting = async(req, res) => {
+  try {
+    console.log("📥 Full request body:", req.body);
+    console.log("📥 Request params:", req.params);
+    console.log("📥 Request query:", req.query);
+    const { meetingId } = req.params;
+     console.log("📥 Extracted meetingId:", meetingId);
+    if (!meetingId) {
+      return res.status(400).json({
+        success: false,
+        error: "meetingId is required",
+      });
+    }
+  // ✅ Correct - this looks for meetingId field
+const deletedMeeting = await MeetingModel.findOneAndUpdate(
+  { meetingId: meetingId },
+  { 
+    isDeleted: false, 
+    deletedAt: null,
+  },
+  { new: true }
+);
+    if(!deletedMeeting){
+       return res.status(404).json({
+        success: false,
+        error: "Meeting not found",
+      });
+    }
+
+    console.log(`✅ Meeting ${meetingId} recovered successfully`);
+
+    await Event.create({
+      userId: deletedMeeting.hostId,
+      type: "meeting.deleted",
+      entityId: meetingId,
+      title: "🗑️ Meeting Recovered",
+      description: `"${deletedMeeting.meetingTitle || "Untitled Meeting"}" has been recovered`,
+      priority: "high",
+      icon: "Trash2",
+      color: "gray",
+      actionLink: `/dashboard/meetings`,
+      metadata: {
+        meetingTitle: deletedMeeting.meetingTitle,
+        meetingDate: deletedMeeting.meetingDate,
+        time: deletedMeeting.time,
+        hostId: deletedMeeting.hostId,
+      },
+    });
+
+  } catch (error) {
+    console.error("Error recovering meeting:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to recover meeting",
+    });
+  }
+}
 
 export const validateMeeting = async (req, res) => {
   try {
@@ -370,12 +516,10 @@ export const checkMeetingPassword = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "Meeting not found" });
-    return res
-      .status(200)
-      .json({
-        success: true,
-        passwordProtected: Boolean(meeting.passwordProtected),
-      });
+    return res.status(200).json({
+      success: true,
+      passwordProtected: Boolean(meeting.passwordProtected),
+    });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -396,12 +540,10 @@ export const setMeetingPassword = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Meeting not found" });
     if (String(meeting.hostId) !== String(hostId)) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: "Only the meeting host can set a meeting password",
-        });
+      return res.status(403).json({
+        success: false,
+        message: "Only the meeting host can set a meeting password",
+      });
     }
 
     if (password && String(password).trim() !== "") {
@@ -591,17 +733,16 @@ export const endMeeting = async (req, res) => {
     await meeting.save();
 
     await Event.create({
-    userId: userId,
-    type: "transcript.created",
-    entityId: meetingId,
-    title: "📝 Transcript Ready",
-    description: `Transcript for "${meeting.meetingTitle}" is ready`,
-    priority: "normal",
-    icon: "FileText",
-    color: "green",
-    actionLink: `/dashboard/meetings`,
-  });
-
+      userId: userId,
+      type: "transcript.created",
+      entityId: meetingId,
+      title: "📝 Transcript Ready",
+      description: `Transcript for "${meeting.meetingTitle}" is ready`,
+      priority: "normal",
+      icon: "FileText",
+      color: "green",
+      actionLink: `/dashboard/meetings`,
+    });
 
     return res.status(200).json({
       success: true,
@@ -724,46 +865,48 @@ export const shareMeeting = async (req, res) => {
         errors,
       });
     }
-    try {  
-  // Find users by email
-  const users = await Profile.find({ 
-    email: { $in: validEmails } 
-  }).lean();
-  
-  if (users && users.length > 0) {
-    const eventPromises = users.map((user) => {
-      // Skip if the user is the host
-      if (user.email === hostEmail) return null;
-      
-      return Event.create({
-        userId: user._id,
-        type: "meeting.invited",
-        entityId: meetingId,
-        title: "📧 Meeting Invitation",
-        description: `${hostName} invited you to "${title || 'a meeting'}" scheduled at ${time}`,
-        priority: "high",
-        icon: "Mail",
-        color: "purple",
-        actionLink: `/dashboard/meetings`,
-        metadata: {
-          meetingLink,
-          meetingId,
-          hostName,
-          hostEmail,
-          time,
-        },
-      });
-    });
-    
-    const validPromises = eventPromises.filter(p => p !== null);
-    if (validPromises.length > 0) {
-      await Promise.all(validPromises);
-      console.log(`✅ Created ${validPromises.length} notification events for invited users`);
+    try {
+      // Find users by email
+      const users = await Profile.find({
+        email: { $in: validEmails },
+      }).lean();
+
+      if (users && users.length > 0) {
+        const eventPromises = users.map((user) => {
+          // Skip if the user is the host
+          if (user.email === hostEmail) return null;
+
+          return Event.create({
+            userId: user._id,
+            type: "meeting.invited",
+            entityId: meetingId,
+            title: "📧 Meeting Invitation",
+            description: `${hostName} invited you to "${title || "a meeting"}" scheduled at ${time}`,
+            priority: "high",
+            icon: "Mail",
+            color: "purple",
+            actionLink: `/dashboard/meetings`,
+            metadata: {
+              meetingLink,
+              meetingId,
+              hostName,
+              hostEmail,
+              time,
+            },
+          });
+        });
+
+        const validPromises = eventPromises.filter((p) => p !== null);
+        if (validPromises.length > 0) {
+          await Promise.all(validPromises);
+          console.log(
+            `✅ Created ${validPromises.length} notification events for invited users`,
+          );
+        }
+      }
+    } catch (eventError) {
+      console.error("⚠️ Error creating notification events:", eventError);
     }
-  }
-} catch (eventError) {
-  console.error("⚠️ Error creating notification events:", eventError);
-}
 
     if (errors.length > 0) {
       return res.status(207).json({
