@@ -1,6 +1,8 @@
 import MeetingModel from "../models/Meeting.model.js";
 import sendMail from "../utils/Nodemailer.js";
 import bcrypt from "bcrypt";
+import Event from "../models/Event.model.js"
+import Profile from "../models/Profile.model.js";
 
 const shareMeetingTemplate = (
   meetingLink,
@@ -166,6 +168,17 @@ export const createMeeting = async (req, res) => {
         },
       ],
     });
+     await Event.create({
+    userId: hostId,
+    type: "meeting.created",
+    entityId: meetingId,
+    title: "Meeting Created",
+    description: `"${meetingTitle}" has been scheduled`,
+    priority: "normal",
+    icon: "Calendar",
+    color: "blue",
+    actionLink: `/dashboard/meetings`,
+  });
     return res.status(201).json({
       success: true,
       meeting,
@@ -243,6 +256,56 @@ export const deleteMeeting = async (req, res) => {
     }
 
     console.log(`✅ Meeting ${meetingId} deleted successfully`);
+
+    await Event.create({
+      userId: deletedMeeting.hostId,
+      type: "meeting.deleted",
+      entityId: meetingId,
+      title: "🗑️ Meeting Deleted",
+      description: `"${deletedMeeting.meetingTitle || 'Untitled Meeting'}" has been deleted`,
+      priority: "high",
+      icon: "Trash2",
+      color: "gray",
+      actionLink: `/dashboard/meetings`,
+      metadata: {
+        meetingTitle: deletedMeeting.meetingTitle,
+        meetingDate: deletedMeeting.meetingDate,
+        time: deletedMeeting.time,
+        hostId: deletedMeeting.hostId,
+      },
+    });
+    // ✅ Create events for participants (if any)
+    if (deletedMeeting.participants && deletedMeeting.participants.length > 0) {
+      const hostEmail = deletedMeeting.participants.find((p) => p.role === "host")?.email;
+      
+      // Loop through each participant and create an event
+      for (const participant of deletedMeeting.participants) {
+        // Skip the host (they already got the deletion event above)
+        if (participant.role === "host") continue;
+        
+        await Event.create({
+          userId: participant.userId || participant._id,
+          type: "meeting.deleted",
+          entityId: meetingId,
+          title: "🗑️ Meeting Cancelled",
+          description: `"${deletedMeeting.meetingTitle || 'Untitled Meeting'}" has been cancelled by the host`,
+          priority: "high",
+          icon: "Trash2",
+          color: "gray",
+          actionLink: `/dashboard/meetings`,
+          metadata: {
+            meetingTitle: deletedMeeting.meetingTitle,
+            hostName: deletedMeeting.participants.find((p) => p.role === "host")?.name || "Host",
+            hostEmail: hostEmail,
+            meetingDate: deletedMeeting.meetingDate,
+            time: deletedMeeting.time,
+          },
+        });
+      }
+      
+      console.log(`✅ Created deletion notifications for ${deletedMeeting.participants.length - 1} participants`);
+    }
+
 
     return res.status(200).json({
       success: true,
@@ -527,6 +590,19 @@ export const endMeeting = async (req, res) => {
 
     await meeting.save();
 
+    await Event.create({
+    userId: userId,
+    type: "transcript.created",
+    entityId: meetingId,
+    title: "📝 Transcript Ready",
+    description: `Transcript for "${meeting.meetingTitle}" is ready`,
+    priority: "normal",
+    icon: "FileText",
+    color: "green",
+    actionLink: `/dashboard/meetings`,
+  });
+
+
     return res.status(200).json({
       success: true,
       message: "Meeting ended successfully",
@@ -648,6 +724,46 @@ export const shareMeeting = async (req, res) => {
         errors,
       });
     }
+    try {  
+  // Find users by email
+  const users = await Profile.find({ 
+    email: { $in: validEmails } 
+  }).lean();
+  
+  if (users && users.length > 0) {
+    const eventPromises = users.map((user) => {
+      // Skip if the user is the host
+      if (user.email === hostEmail) return null;
+      
+      return Event.create({
+        userId: user._id,
+        type: "meeting.invited",
+        entityId: meetingId,
+        title: "📧 Meeting Invitation",
+        description: `${hostName} invited you to "${title || 'a meeting'}" scheduled at ${time}`,
+        priority: "high",
+        icon: "Mail",
+        color: "purple",
+        actionLink: `/dashboard/meetings`,
+        metadata: {
+          meetingLink,
+          meetingId,
+          hostName,
+          hostEmail,
+          time,
+        },
+      });
+    });
+    
+    const validPromises = eventPromises.filter(p => p !== null);
+    if (validPromises.length > 0) {
+      await Promise.all(validPromises);
+      console.log(`✅ Created ${validPromises.length} notification events for invited users`);
+    }
+  }
+} catch (eventError) {
+  console.error("⚠️ Error creating notification events:", eventError);
+}
 
     if (errors.length > 0) {
       return res.status(207).json({
