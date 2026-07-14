@@ -113,6 +113,141 @@ const shareMeetingTemplate = (
   </html>
   `;
 };
+
+const quotationEmailTemplate = (
+  name,
+  orgName,
+  teamSize,
+  companyEmail,
+  contactNum,
+  referenceNumber = null,
+) => {
+  const refNum = referenceNumber || `Q-${Date.now().toString().slice(-8)}`;
+  const currentDate = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  return `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quotation Request - Holovox</title>
+  </head>
+  <body style="margin:0;padding:0;background-color:#f5f5f5;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f5f5f5;padding:40px 20px;">
+      <tr>
+        <td align="center">
+          <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:8px;border:1px solid #e5e5e5;box-shadow:0 1px 3px rgba(0,0,0,0.06);max-width:600px;width:100%;">
+            
+            <!-- HEADER -->
+            <tr>
+              <td style="padding:30px 30px 20px 30px;border-bottom:1px solid #e5e5e5;">
+                <div style="font-size:24px;font-weight:700;color:#E51A54;">Holovox</div>
+                <div style="font-size:12px;color:#666666;margin-top:2px;">AI-Powered Meetings</div>
+              </td>
+            </tr>
+
+            <!-- BODY -->
+            <tr>
+              <td style="padding:30px;">
+                
+                <!-- GREETING -->
+                <p style="font-size:14px;color:#333333;margin:0 0 8px 0;line-height:1.5;">
+                  Hello <strong>${name}</strong>,
+                </p>
+
+                <p style="font-size:14px;color:#333333;margin:0 0 20px 0;line-height:1.5;">
+                  Thank you for your interest in Holovox. We have received your quotation request and our team is reviewing it.
+                </p>
+
+                <!-- QUOTATION DETAILS BOX -->
+                <div style="background:#f5f6f8;border-radius:8px;padding:20px;margin:20px 0 24px 0;border-left:4px solid #E51A54;">
+                  <div style="font-size:16px;font-weight:600;color:#E51A54;margin-bottom:12px;">Quotation Request Details</div>
+                  
+                  <div style="font-size:14px;color:#333333;line-height:2;">
+                    <div><strong>Reference Number:</strong> ${refNum}</div>
+                    <div><strong>Date Submitted:</strong> ${currentDate}</div>
+                    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e5e5;">
+                      <strong>Contact Information</strong>
+                    </div>
+                    <div><strong>Full Name:</strong> ${name}</div>
+                    <div><strong>Organization:</strong> ${orgName}</div>
+                    <div><strong>Team Size:</strong> ${teamSize || "Not specified"}</div>
+                    <div><strong>Company Email:</strong> <a href="mailto:${companyEmail}" style="color:#E51A54;text-decoration:none;">${companyEmail}</a></div>
+                    <div><strong>Contact Number:</strong> ${contactNum || "Not provided"}</div>
+                  </div>
+                </div>
+
+                <!-- WHAT HAPPENS NEXT -->
+                <div style="background:#f8f9fa;border-radius:8px;padding:16px 20px;margin:20px 0;border:1px solid #e5e5e5;">
+                  <div style="font-size:14px;font-weight:600;color:#333333;margin-bottom:8px;">📋 What happens next?</div>
+                  <div style="font-size:13px;color:#666666;line-height:1.6;">
+                    <div>1️⃣ Our team will review your requirements within <strong>24 hours</strong></div>
+                    <div>2️⃣ We'll prepare a customized quotation tailored to your organization</div>
+                    <div>3️⃣ You'll receive the quotation via email with a detailed breakdown</div>
+                    <div style="margin-top:8px;padding-top:8px;border-top:1px solid #e5e5e5;font-size:12px;color:#999999;">
+                      Need immediate assistance? Reply to this email or call us at +1 (555) 123-4567
+                    </div>
+                  </div>
+                </div>
+
+                <!-- QUICK STATS -->
+                <div style="display:flex;gap:16px;margin:20px 0;padding:16px;background:#fafafa;border-radius:8px;border:1px solid #e5e5e5;">
+                  <div style="flex:1;text-align:center;">
+                    <div style="font-size:24px;font-weight:700;color:#E51A54;">24h</div>
+                    <div style="font-size:11px;color:#666666;margin-top:2px;">Response Time</div>
+                  </div>
+                  <div style="width:1px;background:#e5e5e5;"></div>
+                  <div style="flex:1;text-align:center;">
+                    <div style="font-size:24px;font-weight:700;color:#E51A54;">100%</div>
+                    <div style="font-size:11px;color:#666666;margin-top:2px;">Customized Quote</div>
+                  </div>
+                  <div style="width:1px;background:#e5e5e5;"></div>
+                  <div style="flex:1;text-align:center;">
+                    <div style="font-size:24px;font-weight:700;color:#E51A54;">✓</div>
+                    <div style="font-size:11px;color:#666666;margin-top:2px;">No Obligation</div>
+                  </div>
+                </div>
+
+                <!-- ACKNOWLEDGMENT NOTE -->
+                <div style="font-size:12px;color:#999999;text-align:center;padding:12px 0;border-top:1px solid #e5e5e5;margin-top:20px;">
+                  This is a confirmation of your quotation request. Our team will be in touch shortly.
+                </div>
+
+              </td>
+            </tr>
+
+            <!-- FOOTER -->
+            <tr>
+              <td style="border-top:1px solid #e5e5e5;padding:16px 30px;background:#fafafa;border-radius:0 0 8px 8px;">
+                <div style="font-size:11px;color:#999999;text-align:center;">
+                  © ${new Date().getFullYear()} Holovox. All rights reserved.
+                </div>
+                <div style="font-size:11px;color:#999999;text-align:center;margin-top:4px;">
+                  <a href="#" style="color:#E51A54;text-decoration:none;margin:0 8px;">Privacy</a> | 
+                  <a href="#" style="color:#E51A54;text-decoration:none;margin:0 8px;">Terms</a> | 
+                  <a href="#" style="color:#E51A54;text-decoration:none;margin:0 8px;">Support</a>
+                </div>
+                <div style="font-size:10px;color:#999999;text-align:center;margin-top:6px;">
+                  This email is a confirmation of your quotation request. Please keep this for your records.
+                </div>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+  </html>
+  `;
+};
+
 export const createMeeting = async (req, res) => {
   try {
     const {
@@ -929,6 +1064,29 @@ export const shareMeeting = async (req, res) => {
     });
   }
 };
+
+export const shareQuotation = async(req,res)=>{
+  try {
+    const {name, orgName, teamSize, companyEmail, contact} = req.body;
+
+    const emailHtml = quotationEmailTemplate(name,orgName,teamSize,companyEmail,contact)
+    await sendMail(
+          companyEmail,
+          "New Quotation Request - Holovox",
+          emailHtml,
+          process.env.EMAIL_FROM,
+        );
+        res.status(200).json({
+      success: true,
+      message: "Quotation request sent successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to share quotation",
+    });
+  }
+}
 
 export const getUniqueParticipants = async (req, res) => {
   try {

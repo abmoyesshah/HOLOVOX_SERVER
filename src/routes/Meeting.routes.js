@@ -8,6 +8,7 @@ import {
   getUniqueParticipants, 
   joinMeeting, 
   shareMeeting, 
+  shareQuotation,
   updateMeeting, 
   validateMeeting,
   deleteMeeting,
@@ -32,6 +33,7 @@ router.get("/test-meeting", (req, res) => {
       "PUT /joinMeeting",
       "PUT /updateMeeting/:meetingId",
       "POST /shareMeetingLink",
+      "GET /shareQuotation",
       "DELETE /deleteMeetingForever/:meetingId",
       "POST /recoverMeeting/:meetingId",
       "GET /unique-participants/:hostId",
@@ -50,6 +52,7 @@ router.get("/getDeletedMeetings", getDeletedMeetings);
 router.put("/joinMeeting", joinMeeting);
 router.put("/updateMeeting/:meetingId", updateMeeting);
 router.post("/shareMeetingLink", shareMeeting);
+router.post("/shareQuotation", shareQuotation);
 router.post("/recoverMeeting/:meetingId", recoverMeeting);
 router.delete("/deleteMeetingForever/:meetingId", deleteMeetingForever);
 router.get("/unique-participants/:hostId", getUniqueParticipants);
