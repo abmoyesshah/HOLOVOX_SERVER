@@ -129,6 +129,10 @@ const quotationEmailTemplate = (
     day: "numeric",
     year: "numeric",
   });
+  const currentTime = new Date().toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
   return `
   <!DOCTYPE html>
@@ -136,7 +140,7 @@ const quotationEmailTemplate = (
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quotation Request - Holovox</title>
+    <title>🔔 New Enterprise Quotation Request</title>
   </head>
   <body style="margin:0;padding:0;background-color:#f5f5f5;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f5f5f5;padding:40px 20px;">
@@ -146,9 +150,16 @@ const quotationEmailTemplate = (
             
             <!-- HEADER -->
             <tr>
-              <td style="padding:30px 30px 20px 30px;border-bottom:1px solid #e5e5e5;">
-                <div style="font-size:24px;font-weight:700;color:#E51A54;">Holovox</div>
-                <div style="font-size:12px;color:#666666;margin-top:2px;">AI-Powered Meetings</div>
+              <td style="padding:24px 30px;border-bottom:1px solid #e5e5e5;">
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                  <div>
+                    <div style="font-size:20px;font-weight:700;color:#E51A54;">Holovox</div>
+                    <div style="font-size:11px;color:#666666;">AI-Powered Meetings</div>
+                  </div>
+                  <div style="background:#E51A54;color:#ffffff;padding:4px 14px;border-radius:20px;font-size:11px;font-weight:600;">
+                    NEW LEAD
+                  </div>
+                </div>
               </td>
             </tr>
 
@@ -156,67 +167,49 @@ const quotationEmailTemplate = (
             <tr>
               <td style="padding:30px;">
                 
-                <!-- GREETING -->
-                <p style="font-size:14px;color:#333333;margin:0 0 8px 0;line-height:1.5;">
-                  Hello <strong>${name}</strong>,
-                </p>
+                <!-- NOTIFICATION HEADER -->
+                <div style="background:#E51A54;color:#ffffff;padding:16px 20px;border-radius:6px;margin-bottom:24px;">
+                  <div style="font-size:18px;font-weight:700;">🔔 New Enterprise Quotation Request</div>
+                  <div style="font-size:13px;opacity:0.9;margin-top:4px;">
+                    Received on ${currentDate} at ${currentTime}
+                  </div>
+                </div>
 
-                <p style="font-size:14px;color:#333333;margin:0 0 20px 0;line-height:1.5;">
-                  Thank you for your interest in Holovox. We have received your quotation request and our team is reviewing it.
-                </p>
-
-                <!-- QUOTATION DETAILS BOX -->
-                <div style="background:#f5f6f8;border-radius:8px;padding:20px;margin:20px 0 24px 0;border-left:4px solid #E51A54;">
-                  <div style="font-size:16px;font-weight:600;color:#E51A54;margin-bottom:12px;">Quotation Request Details</div>
+                <!-- LEAD DETAILS -->
+                <div style="background:#f8f9fa;border-radius:6px;padding:20px;margin-bottom:20px;border:1px solid #e5e5e5;">
+                  <div style="font-size:13px;font-weight:600;color:#333333;margin-bottom:12px;">📋 Lead Details</div>
                   
                   <div style="font-size:14px;color:#333333;line-height:2;">
-                    <div><strong>Reference Number:</strong> ${refNum}</div>
-                    <div><strong>Date Submitted:</strong> ${currentDate}</div>
-                    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e5e5;">
-                      <strong>Contact Information</strong>
-                    </div>
-                    <div><strong>Full Name:</strong> ${name}</div>
-                    <div><strong>Organization:</strong> ${orgName}</div>
+                    <div><strong>Reference:</strong> <span style="color:#E51A54;font-weight:600;">${refNum}</span></div>
+                    <div><strong>Organization:</strong> <span style="font-weight:600;">${orgName}</span></div>
                     <div><strong>Team Size:</strong> ${teamSize || "Not specified"}</div>
-                    <div><strong>Company Email:</strong> <a href="mailto:${companyEmail}" style="color:#E51A54;text-decoration:none;">${companyEmail}</a></div>
-                    <div><strong>Contact Number:</strong> ${contactNum || "Not provided"}</div>
+                    <div><strong>Package:</strong> <span style="color:#E51A54;font-weight:600;">Enterprise</span></div>
                   </div>
                 </div>
 
-                <!-- WHAT HAPPENS NEXT -->
-                <div style="background:#f8f9fa;border-radius:8px;padding:16px 20px;margin:20px 0;border:1px solid #e5e5e5;">
-                  <div style="font-size:14px;font-weight:600;color:#333333;margin-bottom:8px;">📋 What happens next?</div>
-                  <div style="font-size:13px;color:#666666;line-height:1.6;">
-                    <div>1️⃣ Our team will review your requirements within <strong>24 hours</strong></div>
-                    <div>2️⃣ We'll prepare a customized quotation tailored to your organization</div>
-                    <div>3️⃣ You'll receive the quotation via email with a detailed breakdown</div>
-                    <div style="margin-top:8px;padding-top:8px;border-top:1px solid #e5e5e5;font-size:12px;color:#999999;">
-                      Need immediate assistance? Reply to this email or call us at +1 (555) 123-4567
-                    </div>
+                <!-- CONTACT INFORMATION -->
+                <div style="background:#f8f9fa;border-radius:6px;padding:20px;margin-bottom:20px;border:1px solid #e5e5e5;">
+                  <div style="font-size:13px;font-weight:600;color:#333333;margin-bottom:12px;">👤 Contact Information</div>
+                  
+                  <div style="font-size:14px;color:#333333;line-height:2;">
+                    <div><strong>Name:</strong> ${name}</div>
+                    <div><strong>Email:</strong> <a href="mailto:${companyEmail}" style="color:#E51A54;text-decoration:none;font-weight:500;">${companyEmail}</a></div>
+                    <div><strong>Phone:</strong> ${contactNum || "Not provided"}</div>
                   </div>
                 </div>
 
-                <!-- QUICK STATS -->
-                <div style="display:flex;gap:16px;margin:20px 0;padding:16px;background:#fafafa;border-radius:8px;border:1px solid #e5e5e5;">
-                  <div style="flex:1;text-align:center;">
-                    <div style="font-size:24px;font-weight:700;color:#E51A54;">24h</div>
-                    <div style="font-size:11px;color:#666666;margin-top:2px;">Response Time</div>
-                  </div>
-                  <div style="width:1px;background:#e5e5e5;"></div>
-                  <div style="flex:1;text-align:center;">
-                    <div style="font-size:24px;font-weight:700;color:#E51A54;">100%</div>
-                    <div style="font-size:11px;color:#666666;margin-top:2px;">Customized Quote</div>
-                  </div>
-                  <div style="width:1px;background:#e5e5e5;"></div>
-                  <div style="flex:1;text-align:center;">
-                    <div style="font-size:24px;font-weight:700;color:#E51A54;">✓</div>
-                    <div style="font-size:11px;color:#666666;margin-top:2px;">No Obligation</div>
+                <!-- QUICK ACTIONS -->
+                <div style="margin:24px 0;padding:16px;background:#f0f7ff;border-radius:6px;border:1px solid #d0e0ff;">
+                  <div style="font-size:13px;font-weight:600;color:#333333;margin-bottom:8px;">⚡ Quick Actions</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:10px;">
+                    <a href="mailto:${companyEmail}?subject=Enterprise Package Inquiry - ${orgName}" style="display:inline-block;background:#E51A54;color:#ffffff;text-decoration:none;padding:8px 20px;border-radius:4px;font-size:13px;font-weight:500;">Reply to Customer</a>
+                    <a href="#" style="display:inline-block;background:#ffffff;color:#333333;text-decoration:none;padding:8px 20px;border-radius:4px;font-size:13px;font-weight:500;border:1px solid #d0d0d0;">View in Dashboard</a>
                   </div>
                 </div>
 
-                <!-- ACKNOWLEDGMENT NOTE -->
-                <div style="font-size:12px;color:#999999;text-align:center;padding:12px 0;border-top:1px solid #e5e5e5;margin-top:20px;">
-                  This is a confirmation of your quotation request. Our team will be in touch shortly.
+                <!-- TIMESTAMP -->
+                <div style="font-size:11px;color:#999999;text-align:center;padding:12px 0;border-top:1px solid #e5e5e5;margin-top:8px;">
+                  This is an automated notification. Please follow up with the lead promptly.
                 </div>
 
               </td>
@@ -224,17 +217,9 @@ const quotationEmailTemplate = (
 
             <!-- FOOTER -->
             <tr>
-              <td style="border-top:1px solid #e5e5e5;padding:16px 30px;background:#fafafa;border-radius:0 0 8px 8px;">
-                <div style="font-size:11px;color:#999999;text-align:center;">
-                  © ${new Date().getFullYear()} Holovox. All rights reserved.
-                </div>
-                <div style="font-size:11px;color:#999999;text-align:center;margin-top:4px;">
-                  <a href="#" style="color:#E51A54;text-decoration:none;margin:0 8px;">Privacy</a> | 
-                  <a href="#" style="color:#E51A54;text-decoration:none;margin:0 8px;">Terms</a> | 
-                  <a href="#" style="color:#E51A54;text-decoration:none;margin:0 8px;">Support</a>
-                </div>
-                <div style="font-size:10px;color:#999999;text-align:center;margin-top:6px;">
-                  This email is a confirmation of your quotation request. Please keep this for your records.
+              <td style="border-top:1px solid #e5e5e5;padding:14px 30px;background:#fafafa;border-radius:0 0 8px 8px;">
+                <div style="font-size:10px;color:#999999;text-align:center;">
+                  © ${new Date().getFullYear()} Holovox — Internal Notification
                 </div>
               </td>
             </tr>
