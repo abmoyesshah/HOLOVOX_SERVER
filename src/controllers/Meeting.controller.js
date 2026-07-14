@@ -200,7 +200,7 @@ const quotationEmailTemplate = (
 
                 <!-- QUICK ACTIONS -->
                 <div style="margin:24px 0;padding:16px;background:#f0f7ff;border-radius:6px;border:1px solid #d0e0ff;">
-                  <div style="font-size:13px;font-weight:600;color:#333333;margin-bottom:8px;">⚡ Quick Actions</div>
+                  <div style="font-size:13px;font-weight:600;color:#333333;margin-bottom:8px;"> Quick Actions</div>
                   <div style="display:flex;flex-wrap:wrap;gap:10px;">
                     <a href="mailto:${companyEmail}?subject=Enterprise Package Inquiry - ${orgName}" style="display:inline-block;background:#E51A54;color:#ffffff;text-decoration:none;padding:8px 20px;border-radius:4px;font-size:13px;font-weight:500;">Reply to Customer</a>
                     <a href="#" style="display:inline-block;background:#ffffff;color:#333333;text-decoration:none;padding:8px 20px;border-radius:4px;font-size:13px;font-weight:500;border:1px solid #d0d0d0;">View in Dashboard</a>
@@ -1056,7 +1056,7 @@ export const shareQuotation = async(req,res)=>{
 
     const emailHtml = quotationEmailTemplate(name,orgName,teamSize,companyEmail,contact)
     await sendMail(
-          companyEmail,
+          process.env.OWNER_EMAIL || "rob@holovox.io",
           "New Quotation Request - Holovox",
           emailHtml,
           process.env.EMAIL_FROM,
