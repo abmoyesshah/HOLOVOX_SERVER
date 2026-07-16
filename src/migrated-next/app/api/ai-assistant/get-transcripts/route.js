@@ -1,6 +1,6 @@
 import connectDB from "../../../../lib/db.js";
-import Transcript from "../../../models/Transcript";
-import { NextResponse } from "next/server";
+import Transcript from "../../../models/Transcript.js";
+import { NextResponse } from "../../../../utils/next-response.js";
 
 export async function POST(req) {
     try {
