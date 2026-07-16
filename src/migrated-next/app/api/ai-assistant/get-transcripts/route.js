@@ -1,3 +1,7 @@
+import connectDB from "../../../../lib/db.js";
+import Transcript from "../../../models/Transcript";
+import { NextResponse } from "next/server";
+
 export async function POST(req) {
     try {
         await connectDB();
@@ -57,6 +61,8 @@ export async function POST(req) {
                 groupedByMeeting[roomId].participants[participantName].timestamps.push(transcript.createdAt);
             }
         });
+
+        console.log("group data: ",groupedByMeeting)
         
         // ✅ Format the response with proper timestamps
         const formattedResult = Object.values(groupedByMeeting).map(meeting => {
