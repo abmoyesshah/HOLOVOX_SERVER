@@ -3,6 +3,8 @@ import Stripe from "stripe";
 import connectDB from "../../../../lib/db.js";
 import Product from "../../../models/Product.js";
 import ReferalCode from "../../../models/ReferalCodes.model.js";
+import Bundle from "../../../models/bundle.model.js";
+
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -28,16 +30,42 @@ export async function POST(req) {
     }
 
     await connectDB();
+     // ✅ Separate regular products and bundles
+    const productItems = [];
+    const bundleItems = [];
+
+     for (const item of items) {
+      const isBundle = item.id && item.id.toLowerCase().includes('bundle');
+      if (isBundle) {
+        bundleItems.push(item);
+      } else {
+        productItems.push(item);
+      }
+    }
+
+    console.log(`📦 Regular products: ${productItems.length}, Bundles: ${bundleItems.length}`);
 
     // Fetch products from DB
     const productIds = items.map((i) => i.id);
     const products = await Product.find({ _id: { $in: productIds } });
+      // ✅ Fetch bundles from DB
+    const bundleIds = bundleItems.map((i) => i.id);
+    const bundles = await Bundle.find({ _id: { $in: bundleIds } });
 
     console.log("🛒 Products found in DB:", products.length);
-
-    if (products.length === 0) {
+    console.log("🛒 Bundles found in DB:", bundles.length);
+    // ✅ Check if products exist (only if there are product items)
+    if (productItems.length > 0 && products.length === 0) {
       return NextResponse.json(
         { error: "Products not found in database" },
+        { status: 404 },
+      );
+    }
+
+    // ✅ Check if bundles exist (only if there are bundle items)
+    if (bundleItems.length > 0 && bundles.length === 0) {
+      return NextResponse.json(
+        { error: "Bundles not found in database" },
         { status: 404 },
       );
     }
@@ -54,16 +82,19 @@ export async function POST(req) {
       }
     }
 
-    // 🔥 Line items for products (with discount)
-    const lineItems = items.map((item) => {
+    // ✅ Build line items
+    const lineItems = [];
+
+    // 1. Add regular products
+    for (const item of productItems) {
       const dbProduct = products.find((p) => p._id.toString() === item.id);
       if (!dbProduct) {
-        throw new Error(`Product ${item.id} not found in database`);
+        console.error(`❌ Product ${item.id} not found in database`);
+        continue;
       }
 
-      let unitAmount = dbProduct.price; // already in cents
+      let unitAmount = dbProduct.price;
 
-      // Apply discount if available
       if (discountPercentage && discountPercentage > 0) {
         const discountMultiplier = 1 - discountPercentage / 100;
         unitAmount = Math.round(dbProduct.price * discountMultiplier);
@@ -71,12 +102,10 @@ export async function POST(req) {
           `💰 ${dbProduct.name}: Original: ${dbProduct.price}¢ → Discounted: ${unitAmount}¢ (${discountPercentage}% off)`,
         );
       } else {
-        console.log(
-          `💰 ${dbProduct.name}: Price: ${dbProduct.price}¢ (No discount)`,
-        );
+        console.log(`💰 ${dbProduct.name}: Price: ${dbProduct.price}¢`);
       }
 
-      return {
+      lineItems.push({
         price_data: {
           currency: "usd",
           product_data: {
@@ -86,10 +115,49 @@ export async function POST(req) {
           unit_amount: unitAmount,
         },
         quantity: item.qty,
-      };
-    });
+      });
+    }
 
-    // ✅ ✅ ✅ SHIPPING AS A LINE ITEM (if shippingCost > 0)
+    // 2. Add bundles
+    for (const item of bundleItems) {
+      const dbBundle = bundles.find((b) => b._id.toString() === item.id);
+      if (!dbBundle) {
+        console.error(`❌ Bundle ${item.id} not found in database`);
+        continue;
+      }
+
+      let unitAmount = dbBundle.price;
+      
+      // ✅ Convert bundle price to cents (if in dollars)
+      if (unitAmount < 1000) {
+        unitAmount = Math.round(unitAmount * 100);
+        console.log(`💰 Bundle ${dbBundle.name}: Converted $${dbBundle.price} to ${unitAmount}¢`);
+      }
+
+      if (discountPercentage && discountPercentage > 0) {
+        const discountMultiplier = 1 - discountPercentage / 100;
+        unitAmount = Math.round(unitAmount * discountMultiplier);
+        console.log(
+          `💰 Bundle ${dbBundle.name}: Discounted: ${unitAmount}¢ (${discountPercentage}% off)`,
+        );
+      } else {
+        console.log(`💰 Bundle ${dbBundle.name}: Price: ${unitAmount}¢`);
+      }
+
+      lineItems.push({
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: dbBundle.name,
+            description: dbBundle.description || "Curated bundle with special pricing",
+          },
+          unit_amount: unitAmount,
+        },
+        quantity: item.qty,
+      });
+    }
+
+    // 3. Add shipping if cost > 0
     if (shippingCost && shippingCost > 0) {
       lineItems.push({
         price_data: {
@@ -98,30 +166,41 @@ export async function POST(req) {
             name: "Shipping",
             description: `Shipping to ${shipping?.country || "your address"}`,
           },
-          unit_amount: Math.round(shippingCost * 100), // convert dollars to cents
+          unit_amount: Math.round(shippingCost * 100),
         },
         quantity: 1,
       });
       console.log(`📦 Shipping added: $${shippingCost}`);
     }
 
-    // Calculate totals (for logging/metadata)
-    const subtotal = items.reduce((sum, item) => {
-      const dbProduct = products.find((p) => p._id.toString() === item.id);
-      return sum + (dbProduct ? dbProduct.price : 0) * item.qty;
-    }, 0);
+    if (lineItems.length === 0) {
+      return NextResponse.json(
+        { error: "No valid items to checkout. Products or bundles not found." },
+        { status: 404 },
+      );
+    }
 
-    const discountedSubtotal = lineItems
-      .filter((item) => item.price_data.product_data.name !== "Shipping") // only products
-      .reduce((sum, item, index) => {
-        // but careful: index not correct because we filtered; better recompute from items
-        // simpler: just use items and discount
-        return sum + item.price_data.unit_amount * (items[index]?.qty || 0);
-      }, 0);
-    // Actually the above is not perfect; we'll just compute simple:
-    // We'll compute discountedSubtotal from original items with discount
+    // ✅ Calculate totals for metadata
+    let subtotal = 0;
+    productItems.forEach((item) => {
+      const dbProduct = products.find((p) => p._id.toString() === item.id);
+      if (dbProduct) {
+        subtotal += dbProduct.price * item.qty;
+      }
+    });
+    bundleItems.forEach((item) => {
+      const dbBundle = bundles.find((b) => b._id.toString() === item.id);
+      if (dbBundle) {
+        let price = dbBundle.price;
+        if (price < 1000) {
+          price = Math.round(price * 100);
+        }
+        subtotal += price * item.qty;
+      }
+    });
+
     let discountedProductsTotal = 0;
-    items.forEach((item) => {
+    productItems.forEach((item) => {
       const dbProduct = products.find((p) => p._id.toString() === item.id);
       if (dbProduct) {
         let price = dbProduct.price;
@@ -131,17 +210,31 @@ export async function POST(req) {
         discountedProductsTotal += price * item.qty;
       }
     });
+    bundleItems.forEach((item) => {
+      const dbBundle = bundles.find((b) => b._id.toString() === item.id);
+      if (dbBundle) {
+        let price = dbBundle.price;
+        if (price < 1000) {
+          price = Math.round(price * 100);
+        }
+        if (discountPercentage && discountPercentage > 0) {
+          price = Math.round(price * (1 - discountPercentage / 100));
+        }
+        discountedProductsTotal += price * item.qty;
+      }
+    });
 
     console.log(`💰 Original subtotal: $${(subtotal / 100).toFixed(2)}`);
     console.log(
-      `💰 Discounted subtotal (products only): $${(discountedProductsTotal / 100).toFixed(2)}`,
+      `💰 Discounted subtotal: $${(discountedProductsTotal / 100).toFixed(2)}`,
     );
     console.log(
       `💰 Discount applied: $${((subtotal - discountedProductsTotal) / 100).toFixed(2)}`,
     );
-    console.log(`📦 Total with shipping: $${((discountedProductsTotal + (shippingCost || 0) * 100) / 100).toFixed(2)}`);
+    console.log(
+      `📦 Total with shipping: $${((discountedProductsTotal + (shippingCost || 0) * 100) / 100).toFixed(2)}`,
+    );
 
-    // 🔥 Stripe session create
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: lineItems,
@@ -155,6 +248,7 @@ export async function POST(req) {
         discountPercentage: (discountPercentage || 0).toString(),
         referralCode: referralCode || "",
         shippingCost: (shippingCost || 0).toString(),
+        hasBundle: (bundleItems.length > 0).toString(),
       },
     });
 
@@ -170,6 +264,8 @@ export async function POST(req) {
     );
   }
 }
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 
 // import { NextResponse } from "../../../../utils/next-response.js";
