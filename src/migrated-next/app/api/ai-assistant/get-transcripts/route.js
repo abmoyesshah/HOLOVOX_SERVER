@@ -1,10 +1,3 @@
-// app/api/ai-assistant/get-transcripts/route.js
-import connectDB from "../../../../lib/db.js";
-import Transcript from "../../../models/Transcript.js";
-import { NextResponse } from "../../../../utils/next-response.js";
-
-// app/api/ai-assistant/get-transcripts/route.js
-
 export async function POST(req) {
     try {
         await connectDB();
@@ -20,13 +13,16 @@ export async function POST(req) {
             }, { status: 400 });
         }
         
-        // Fetch transcripts - FILTER OUT [NO SPEECH DETECTED]
+        // ✅ Fetch transcripts - FILTER OUT [NO SPEECH DETECTED]
+        // ✅ Sort by createdAt to maintain chronological order
         const transcripts = await Transcript.find({
             roomId: { $in: meetingIds },
-            text: { $ne: "[NO SPEECH DETECTED]" } // 👈 THIS FILTERS OUT NO SPEECH
+            text: { $ne: "[NO SPEECH DETECTED]" }
         })
-        .sort({ roomId: 1, participantName: 1, timestamp: 1 })
+        .sort({ roomId: 1, participantName: 1, createdAt: 1 }) // ✅ Sort by createdAt
         .lean();
+        
+        console.log(`📝 Found ${transcripts.length} transcripts`);
         
         // Rest of your grouping logic...
         const groupedByMeeting = {};
@@ -50,17 +46,19 @@ export async function POST(req) {
                 groupedByMeeting[roomId].participants[participantName] = {
                     name: participantName,
                     texts: [],
-                    timestamps: []
+                    timestamps: [] // ✅ This will store createdAt
                 };
             }
             
             groupedByMeeting[roomId].participants[participantName].texts.push(text);
-            if (transcript.timestamp) {
-                groupedByMeeting[roomId].participants[participantName].timestamps.push(transcript.timestamp);
+            
+            // ✅ Use createdAt instead of timestamp
+            if (transcript.createdAt) {
+                groupedByMeeting[roomId].participants[participantName].timestamps.push(transcript.createdAt);
             }
         });
         
-        // Format the response
+        // ✅ Format the response with proper timestamps
         const formattedResult = Object.values(groupedByMeeting).map(meeting => {
             const participants = Object.values(meeting.participants).map(participant => ({
                 name: participant.name,
@@ -70,7 +68,7 @@ export async function POST(req) {
                 ).join("\n"),
                 textCount: participant.texts.length,
                 texts: participant.texts,
-                timestamps: participant.timestamps
+                timestamps: participant.timestamps // ✅ Now contains actual createdAt timestamps
             }));
             
             return {
