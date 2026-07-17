@@ -1,6 +1,7 @@
 // app/api/ai-assistant/transcribe-live/route.js
 import { NextResponse } from "../../../../utils/next-response.js";
-import { createClient } from "@deepgram/sdk";
+// import { createClient } from "@deepgram/sdk";
+import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import connectDB from "../../../../lib/db.js";
 import Transcript from "../../../../app/models/Transcript.js";
@@ -71,43 +72,65 @@ export async function POST(req) {
 
     const buffer = Buffer.from(await audio.arrayBuffer());
 
-    const deepgram = createClient(process.env.DEEPGRAM_API);
+    // const deepgram = createClient(process.env.DEEPGRAM_API);
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
 
-    const { result } = await deepgram.listen.prerecorded.transcribeFile(
-      buffer,
-      {
-        model: "nova-2",
-        smart_format: true,
-        language: "en",
-        ...(detectedMimeType ? { mimetype: detectedMimeType } : {}),
-      },
-    );
+    // const { result } = await deepgram.listen.prerecorded.transcribeFile(
+    //   buffer,
+    //   {
+    //     model: "nova-2",
+    //     smart_format: true,
+    //     language: "en",
+    //     ...(detectedMimeType ? { mimetype: detectedMimeType } : {}),
+    //   },
+    // );
 
-    const deepgramChannels = Array.isArray(result?.results?.channels)
-      ? result.results.channels
-      : [];
+    // const deepgramChannels = Array.isArray(result?.results?.channels)
+    //   ? result.results.channels
+    //   : [];
 
-    const deepgramAlternatives = Array.isArray(deepgramChannels[0]?.alternatives)
-      ? deepgramChannels[0].alternatives
-      : [];
+    // const deepgramAlternatives = Array.isArray(deepgramChannels[0]?.alternatives)
+    //   ? deepgramChannels[0].alternatives
+    //   : [];
 
-    const primaryAlternative = deepgramAlternatives[0] || null;
+    // const primaryAlternative = deepgramAlternatives[0] || null;
 
-    const deepgramDebug = {
-      duration: result?.metadata?.duration ?? null,
-      channels: deepgramChannels.length,
-      alternativesCount: deepgramAlternatives.length,
-      confidence:
-        typeof primaryAlternative?.confidence === "number"
-          ? primaryAlternative.confidence
-          : null,
-      wordsCount: Array.isArray(primaryAlternative?.words)
-        ? primaryAlternative.words.length
-        : 0,
-    };
+    // const deepgramDebug = {
+    //   duration: result?.metadata?.duration ?? null,
+    //   channels: deepgramChannels.length,
+    //   alternativesCount: deepgramAlternatives.length,
+    //   confidence:
+    //     typeof primaryAlternative?.confidence === "number"
+    //       ? primaryAlternative.confidence
+    //       : null,
+    //   wordsCount: Array.isArray(primaryAlternative?.words)
+    //     ? primaryAlternative.words.length
+    //     : 0,
+    // };
 
-    const text =
-      result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
+    // const text =
+    //   result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
+
+
+const audioFile = new File(
+  [buffer],
+  audio.name || "audio.webm",
+  {
+    type: detectedMimeType || "audio/webm",
+  }
+);
+
+const transcription = await openai.audio.transcriptions.create({
+  file: audioFile,
+  model: "gpt-4o-transcribe", // or "whisper-1"
+  language: "en",
+});
+console.log("sending audio to Openapi...");
+
+const text = transcription.text || "";
+
 
     // Save transcript
     let saved = null;
@@ -129,7 +152,10 @@ export async function POST(req) {
         sessionId,
         audioBytes: buffer.length,
         mimeType: detectedMimeType,
-        deepgram: deepgramDebug,
+        transcription: {
+  model: "gpt-4o-transcribe",
+},
+        // deepgram: deepgramDebug,
       });
     }
 
@@ -159,7 +185,7 @@ You are a real-time AI meeting assistant.
 Your job is to assist the host during the conversation.
 
 Rules:
-    - Maximum 30 words.
+    - Maximum 20 words.
 - Plain text only.
 - No markdown.
 - No bullet points.
