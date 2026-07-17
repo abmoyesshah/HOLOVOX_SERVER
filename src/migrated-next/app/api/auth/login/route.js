@@ -149,7 +149,7 @@ export async function POST(req) {
         name: user?.fullName || user?.name || "",
         verified: user?.verified || false,
         isOtpVerified: user?.isOtpVerified || false,
-        image: user?.profilePicture || user?.image || "",
+        image: user?.ProfilePicture || user?.image || "",
         status: user?.status || "none",
         subscription: subscription,
         userType: userType, // Add user type to identify source

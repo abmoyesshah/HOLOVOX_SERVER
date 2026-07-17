@@ -54,7 +54,17 @@ isOtpVerified: {
       type: String,
       enum: ["free", "assist","spark","enterprise"],
       default: "free",
-    }
+    },
+     trialActive: {
+        type: Boolean,
+        default: false,
+    },
+    trialEndDate: {
+        type: Date,
+    },
+    trialStartedAt: {
+        type: Date,
+    },
    
   },
   { timestamps: true }
