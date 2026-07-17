@@ -186,6 +186,16 @@ const ProfileSchema = new mongoose.Schema(
       enum: ["free", "spark", "assist", "enterprise"],
       default: "free",
     },
+        trialActive: {
+        type: Boolean,
+        default: false,
+    },
+    trialEndDate: {
+        type: Date,
+    },
+    trialStartedAt: {
+        type: Date,
+    },
 
   },
   { timestamps: true }

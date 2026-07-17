@@ -245,24 +245,35 @@ const LoginUser = asyncHandler(async (req, res) => {
     );
   }
   console.log("User found for login:", user?.role, user?._id);
-  // ✅ JWT TOKEN CREATE
-  const token = jwt.sign(
-    {
-      id: user._id,
-      email: user.email,
-      role: user?.role,
-      name: user?.fullName,
-      Subscription: user.Subscription || "free",  // ADD
-      meetingUsed: user.meetingUsed || false,      // ADD
-      verified: user?.verified,
-      image: user?.image || "",
-      status: user?.status || "none"
-    },
-    process.env.JWT_SECRET,
-    {
-      expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "1d",
-    }
-  );
+  
+  // ✅ JWT TOKEN CREATE - ADD ProfilePicture
+ // In your login route
+const token = jwt.sign(
+  {
+    id: user._id,
+    email: user.email,
+    role: user?.role || "user",
+    name: user?.fullName || user?.name,
+    fullName: user?.fullName || user?.name,
+    Subscription: user?.Subscription || "free",
+    subscription: user?.subscription || "free",
+    meetingUsed: user?.meetingUsed || false,
+    verified: user?.verified || false,
+    isOtpVerified: user?.isOtpVerified || false,
+    image: user?.image || user?.profilePicture || user?.ProfilePicture || "",
+    ProfilePicture: user?.ProfilePicture || user?.profilePicture || user?.image || null,
+    profilePicture: user?.ProfilePicture || user?.profilePicture || user?.image || null,
+    status: user?.status || "none",
+    trialActive: user?.trialActive || false,
+    trialStartDate: user?.trialStartDate || null,
+    trialEndDate: user?.trialEndDate || null,
+    trialDays: user?.trialDays || 0,
+  },
+  process.env.JWT_SECRET,
+  {
+    expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "1d",
+  }
+);
   console.log("User logged in:", user);
   return res.status(200).json(
     new ApiResponse(
@@ -271,7 +282,9 @@ const LoginUser = asyncHandler(async (req, res) => {
         token: token,
         role: user?.role,
         Subscription: user?.Subscription,
-        meetingUsed: user?.meetingUsed
+        meetingUsed: user?.meetingUsed,
+        // ✅ Also return profile picture in response
+        ProfilePicture: user?.ProfilePicture || user?.profilePicture || user?.image || null,
       },
       "User LoggedIn Successfully..."
     )
