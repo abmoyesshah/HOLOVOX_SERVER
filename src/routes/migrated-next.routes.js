@@ -30,6 +30,7 @@ import * as route26 from "../migrated-next/app/api/holo-assist/profile/route.js"
 import * as route27 from "../migrated-next/app/api/stripe/confirm-order/route.js";
 import * as route28 from "../migrated-next/app/api/stripe/create-checkout/route.js";
 import * as route29 from "../migrated-next/app/api/upload/route.js";
+import * as route30 from "../migrated-next/app/api/user/profile/route.js";
 
 const router = express.Router();
 
@@ -63,5 +64,7 @@ registerNextRoute(router, "/api/holo-assist/profile", route26, ["get", "post"]);
 registerNextRoute(router, "/api/stripe/confirm-order", route27, ["post", "get"]);
 registerNextRoute(router, "/api/stripe/create-checkout", route28, ["post"]);
 registerNextRoute(router, "/api/upload", route29, ["post"]);
+registerNextRoute(router, "/api/user/profile", route30, ["get"]);
+registerNextRoute(router, "/api/user/profile", route30, ["put"]);
 
 export default router;
