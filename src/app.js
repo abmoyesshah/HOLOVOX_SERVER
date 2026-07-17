@@ -67,7 +67,11 @@ import AiAssistantRouter from "./routes/ai-assistant.routes.js";
 import TranscribeLiveRouter from "./routes/transcribe-live.routes.js";
 import AnalyticsRouter from "./routes/Analytics.routes.js";
 import MigratedNextRouter from "./routes/migrated-next.routes.js";
+<<<<<<< HEAD
+import EnterpriseRouter from "./routes/Enterprise.routes.js";
+=======
 import TranscriptRouter from "./routes/transcript.js"; // 👈 Import the new route
+>>>>>>> 37bc7ee8db61303b3d1f506905089f17fdcb999d
 
 console.log("✅ All routes imported!"); // 👈 Add this
 // Register routes
@@ -84,6 +88,7 @@ app.use("/api/v1/", AiAssistantRouter);
 app.use("/api/v1/", TranscribeLiveRouter);
 app.use("/api/v1/", UploadRecordingRouter);
 app.use("/api/v1/", AnalyticsRouter);
+app.use("/api/v1/enterprise", EnterpriseRouter);
 app.use("/", MigratedNextRouter);
 app.use("/api/v1/", meetingLimiter, TokenRouter);
 app.use("/api/v1/", meetingLimiter, MeetingRouter);
