@@ -1,121 +1,130 @@
 // app/api/user/profile/route.js
-import { NextResponse } from "../../../utils/next-response.js";
-import { connectDB } from "../../../lib/db.js";
-import User from "../../../models/User.js";
-import { verifyToken } from "../../../utils/auth.js";
+import connectDB from "../../../../lib/db.js";
+import User from "../../../models/Profile.model.js";
 
-// GET user profile
-export async function GET(req) {
+console.log("✅ User profile route loaded");
+
+// GET user profile by userId from query parameter
+export async function GET(req, res) {
+  console.log("📥 GET /api/user/profile - Request received");
+  
   try {
     await connectDB();
     
-    // Get token from headers
-    const token = req.headers.get('authorization')?.replace('Bearer ', '');
+    // Get userId from query parameters
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const userId = url.searchParams.get('userId');
     
-    if (!token) {
-      return NextResponse.json(
-        { error: "Unauthorized - No token provided" },
-        { status: 401 }
-      );
+    console.log("🔍 Looking for user with ID from query:", userId);
+    
+    if (!userId) {
+      console.log("❌ No userId provided in query");
+      // ✅ Return object instead of using res
+      return {
+        status: 400,
+        body: { 
+          success: false,
+          error: "User ID is required" 
+        }
+      };
     }
 
-    // Verify token
-    const decoded = verifyToken(token);
-    if (!decoded) {
-      return NextResponse.json(
-        { error: "Unauthorized - Invalid token" },
-        { status: 401 }
-      );
-    }
-
-    // Find user
-    const user = await User.findById(decoded.userId || decoded.id)
-      .select('-password -__v'); // Exclude sensitive fields
+    // Find user by ID
+    const user = await User.findById(userId)
+      .select('-password -__v');
 
     if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
+      console.log("❌ User not found with ID:", userId);
+      return {
+        status: 404,
+        body: { 
+          success: false,
+          error: "User not found" 
+        }
+      };
     }
 
-    return NextResponse.json({
-      success: true,
-      user: {
-        id: user._id,
-        fullName: user.fullName || user.name,
-        email: user.email,
-        role: user.role,
-        subscription: user.subscription || 'free',
-        profilePicture: user.profilePicture || user.ProfilePicture || null,
-        isOtpVerified: user.isOtpVerified || false,
-        verified: user.verified || false,
-        createdAt: user.createdAt,
+    console.log("✅ User found:", user.email);
+
+    return {
+      status: 200,
+      body: {
+        success: true,
+        user: {
+          id: user._id,
+          fullName: user.fullName || user.name,
+          email: user.email,
+          role: user.role,
+          subscription: user.subscription || 'free',
+          profilePicture: user.profilePicture || user.ProfilePicture || null,
+          isOtpVerified: user.isOtpVerified || false,
+          verified: user.verified || false,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+        }
       }
-    });
+    };
 
   } catch (error) {
     console.error("❌ Error fetching profile:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch profile: " + error.message },
-      { status: 500 }
-    );
+    return {
+      status: 500,
+      body: { 
+        success: false,
+        error: "Failed to fetch profile: " + error.message 
+      }
+    };
   }
 }
 
-// PUT - Update user profile
-export async function PUT(req) {
+// PUT - Update user profile by userId from query parameter
+export async function PUT(req, res) {
+  console.log("📥 PUT /api/user/profile - Request received");
+  
   try {
     await connectDB();
     
-    // Get token from headers
-    const token = req.headers.get('authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return NextResponse.json(
-        { error: "Unauthorized - No token provided" },
-        { status: 401 }
-      );
-    }
+    // Get userId from query parameters
+   
 
-    // Verify token
-    const decoded = verifyToken(token);
-    if (!decoded) {
-      return NextResponse.json(
-        { error: "Unauthorized - Invalid token" },
-        { status: 401 }
-      );
-    }
-
-    // Get update data
+    // ✅ Get update data from request body
     const body = await req.json();
-    const { fullName, name, role, profilePicture, subscription } = body;
-
-    // Find user
-    const user = await User.findById(decoded.userId || decoded.id);
+    const {userId, fullName, role, profilePicture, subscription } = body;
+    console.log("📦 Update data:", { fullName, role, profilePicture, subscription });
+     if (!userId) {
+      console.log("❌ UserId not provided");
+      return {
+        status: 404,
+        body: { 
+          success: false,
+          error: "UserId not provided" 
+        }
+      };
+    }
+    // Find user by ID
+    const user = await User.findById(userId);
     
     if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
+      console.log("❌ User not found with ID:", userId);
+      return {
+        status: 404,
+        body: { 
+          success: false,
+          error: "User not found" 
+        }
+      };
     }
 
     // Update fields
     if (fullName) {
       user.fullName = fullName;
-      user.name = fullName; // For backward compatibility
     }
-    if (name) {
-      user.name = name;
-      if (!fullName) user.fullName = name; // For backward compatibility
-    }
+   
     if (role) {
       user.role = role;
     }
     if (profilePicture) {
-      user.profilePicture = profilePicture;
-      user.ProfilePicture = profilePicture; // For backward compatibility
+      user.ProfilePicture = profilePicture;
     }
     if (subscription) {
       user.subscription = subscription;
@@ -123,33 +132,41 @@ export async function PUT(req) {
 
     // Save user
     await user.save();
+    console.log("✅ User updated:", user.email);
 
-    // Return updated user (without sensitive fields)
+    // Return updated user
     const updatedUser = user.toObject();
     delete updatedUser.password;
     delete updatedUser.__v;
 
-    return NextResponse.json({
-      success: true,
-      message: "Profile updated successfully",
-      user: {
-        id: updatedUser._id,
-        fullName: updatedUser.fullName || updatedUser.name,
-        email: updatedUser.email,
-        role: updatedUser.role,
-        subscription: updatedUser.subscription,
-        profilePicture: updatedUser.profilePicture || updatedUser.ProfilePicture || null,
-        isOtpVerified: updatedUser.isOtpVerified || false,
-        verified: updatedUser.verified || false,
-        createdAt: updatedUser.createdAt,
+    return {
+      status: 200,
+      body: {
+        success: true,
+        message: "Profile updated successfully",
+        user: {
+          id: updatedUser._id,
+          fullName: updatedUser.fullName || updatedUser.name,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          subscription: updatedUser.subscription,
+          profilePicture: updatedUser.profilePicture || updatedUser.ProfilePicture || null,
+          isOtpVerified: updatedUser.isOtpVerified || false,
+          verified: updatedUser.verified || false,
+          createdAt: updatedUser.createdAt,
+          updatedAt: updatedUser.updatedAt,
+        }
       }
-    });
+    };
 
   } catch (error) {
     console.error("❌ Error updating profile:", error);
-    return NextResponse.json(
-      { error: "Failed to update profile: " + error.message },
-      { status: 500 }
-    );
+    return {
+      status: 500,
+      body: { 
+        success: false,
+        error: "Failed to update profile: " + error.message 
+      }
+    };
   }
 }

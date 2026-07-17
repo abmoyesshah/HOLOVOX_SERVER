@@ -1,3 +1,4 @@
+// app/api/auth/googleLogin/route.js
 import { NextResponse } from "../../../../utils/next-response.js";
 import jwt from "jsonwebtoken";
 import connectDB from "../../../../lib/db.js";
@@ -80,17 +81,28 @@ export async function POST(req) {
       user = await Profile.create({
         email: normalizedEmail,
         fullName: name,
+        name: name,
         role: "user",
         isOtpVerified: true,
         verified: true,
         Subscription: "free",
+        subscription: "free",
         profilePicture: picture || "",
+        ProfilePicture: picture || "",
+        image: picture || "",
+        trialActive: false,
+        trialDays: 0,
+        trialStartDate: null,
+        trialEndDate: null,
       });
       userType = "profile";
     } else {
       const updates = {
         fullName: user?.fullName || name,
+        name: user?.name || name,
         profilePicture: picture || user?.profilePicture || "",
+        ProfilePicture: picture || user?.ProfilePicture || "",
+        image: picture || user?.image || "",
       };
       user = await (userType === "profile"
         ? Profile.findByIdAndUpdate(user._id, updates, { new: true })
@@ -102,6 +114,10 @@ export async function POST(req) {
       user?.subscription ||
       (userType === "enterprise" ? "enterprise-user" : "free");
 
+    // ✅ Get profile picture from user
+    const profilePicture = user?.ProfilePicture || user?.profilePicture || user?.image || picture || "";
+
+    // ✅ Create JWT with all fields including ProfilePicture and trial fields
     const token = jwt.sign(
       {
         id: user._id,
@@ -109,14 +125,24 @@ export async function POST(req) {
         email: user.email,
         role: user?.role || "user",
         name: user?.fullName || user?.name || "",
+        fullName: user?.fullName || user?.name || "",
         verified: user?.verified || false,
         isOtpVerified: user?.isOtpVerified || false,
-        image: user?.profilePicture || user?.ProfilePicture || user?.image || "",
+        image: profilePicture,
+        // ✅ ADD ProfilePicture (both naming conventions)
+        ProfilePicture: profilePicture,
+        profilePicture: profilePicture,
         status: user?.status || "none",
-        subscription,
-        userType,
+        subscription: subscription,
+        Subscription: subscription,
+        userType: userType,
         enterpriseId: user?.enterpriseId || null,
         addedBy: user?.addedBy || null,
+        // ✅ ADD trial fields
+        trialActive: user?.trialActive || false,
+        trialStartDate: user?.trialStartDate || null,
+        trialEndDate: user?.trialEndDate || null,
+        trialDays: user?.trialDays || 0,
       },
       process.env.JWT_SECRET,
       {
@@ -134,9 +160,12 @@ export async function POST(req) {
           email: user.email,
           name: user?.fullName || user?.name || "",
           role: user?.role || "user",
-          subscription,
-          userType,
+          subscription: subscription,
+          userType: userType,
           isOtpVerified: user?.isOtpVerified || false,
+          // ✅ Also return profile picture in response
+          profilePicture: profilePicture,
+          ProfilePicture: profilePicture,
         },
       },
       { status: 200 }
