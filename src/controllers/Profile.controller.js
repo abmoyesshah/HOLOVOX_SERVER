@@ -222,6 +222,7 @@ const verifyOtp = asyncHandler(async (req, res) => {
     new ApiResponse(200, null, "OTP verified successfully")
   );
 });
+// In your backend controllers/Profile.controller.js or wherever LoginUser is
 
 const LoginUser = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
@@ -230,51 +231,59 @@ const LoginUser = asyncHandler(async (req, res) => {
     throw new ApiError(400, "All fields are required...!");
   }
 
-  // ❌ yahan OR galat hota hai, sirf email se user find hota hai
   const user = await Profile.findOne({ email: email.toLowerCase() }).lean();
 
   if (!user) {
     throw new ApiError(400, "User does not exist...");
   }
 
-  // Compare password
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
-    throw new ApiError(
-      400, "Password not match..."
-    );
+    throw new ApiError(400, "Password not match...");
   }
+
+  // ✅ Get profile picture from user
+  const profilePicture = user?.ProfilePicture || user?.profilePicture || user?.image || "";
+
   console.log("User found for login:", user?.role, user?._id);
-  
-  // ✅ JWT TOKEN CREATE - ADD ProfilePicture
- // In your login route
-const token = jwt.sign(
-  {
-    id: user._id,
-    email: user.email,
-    role: user?.role || "user",
-    name: user?.fullName || user?.name,
-    fullName: user?.fullName || user?.name,
-    Subscription: user?.Subscription || "free",
-    subscription: user?.subscription || "free",
-    meetingUsed: user?.meetingUsed || false,
-    verified: user?.verified || false,
-    isOtpVerified: user?.isOtpVerified || false,
-    image: user?.image || user?.profilePicture || user?.ProfilePicture || "",
-    ProfilePicture: user?.ProfilePicture || user?.profilePicture || user?.image || null,
-    profilePicture: user?.ProfilePicture || user?.profilePicture || user?.image || null,
-    status: user?.status || "none",
-    trialActive: user?.trialActive || false,
-    trialStartDate: user?.trialStartDate || null,
-    trialEndDate: user?.trialEndDate || null,
-    trialDays: user?.trialDays || 0,
-  },
-  process.env.JWT_SECRET,
-  {
-    expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "1d",
-  }
-);
-  console.log("User logged in:", user);
+  console.log("Profile picture:", profilePicture);
+
+  // ✅ JWT TOKEN CREATE - ADD ALL FIELDS
+  const token = jwt.sign(
+    {
+      id: user._id,
+      _id: user._id,
+      email: user.email,
+      role: user?.role || "user",
+      name: user?.fullName || user?.name,
+      fullName: user?.fullName || user?.name,
+      Subscription: user?.Subscription || "free",
+      subscription: user?.subscription || "free",
+      meetingUsed: user?.meetingUsed || false,
+      verified: user?.verified || false,
+      isOtpVerified: user?.isOtpVerified || false,
+      // ✅ ADD ProfilePicture (both naming conventions)
+      image: profilePicture,
+      ProfilePicture: profilePicture,
+      profilePicture: profilePicture,
+      status: user?.status || "none",
+      userType: user?.userType || "profile",
+      enterpriseId: user?.enterpriseId || null,
+      addedBy: user?.addedBy || null,
+      // ✅ ADD trial fields
+      trialActive: user?.trialActive || false,
+      trialStartDate: user?.trialStartDate || null,
+      trialEndDate: user?.trialEndDate || null,
+      trialDays: user?.trialDays || 0,
+    },
+    process.env.JWT_SECRET,
+    {
+      expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "1d",
+    }
+  );
+
+  console.log("User logged in with token containing ProfilePicture:", profilePicture);
+
   return res.status(200).json(
     new ApiResponse(
       200,
@@ -283,14 +292,14 @@ const token = jwt.sign(
         role: user?.role,
         Subscription: user?.Subscription,
         meetingUsed: user?.meetingUsed,
-        // ✅ Also return profile picture in response
-        ProfilePicture: user?.ProfilePicture || user?.profilePicture || user?.image || null,
+        ProfilePicture: profilePicture,
+        profilePicture: profilePicture,
+        image: profilePicture,
       },
       "User LoggedIn Successfully..."
     )
   );
 });
-
 
 const getProfile = asyncHandler(async (req, res) => {
   const { userId } = req.params;
