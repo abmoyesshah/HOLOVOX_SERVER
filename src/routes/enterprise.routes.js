@@ -12,7 +12,7 @@ import {
   scanEnterpriseTranscript,
   updateEnterpriseFlag,
   uploadBrainTrainingFile,
-} from "../controllers/enterprise.controller.js";
+} from "../controllers/Enterprise.controller.js";
 
 const router = express.Router();
 

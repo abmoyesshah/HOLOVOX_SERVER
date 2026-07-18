@@ -1,34 +1,34 @@
 import express from "express";
+import { upload } from "../middlewares/Multer.middleware.js";
 import {
-  createEnterpriseRule,
-  deleteEnterpriseRule,
-  extractMeetingFlags,
-  getEnterpriseManagerDashboard,
-  getEnterpriseMeetingFlags,
-  getEnterpriseMeetings,
-  getEnterpriseOrgNodes,
-  getEnterpriseOwnerDashboard,
-  getEnterpriseRules,
-  getEnterpriseUserDashboard,
-  updateEnterpriseFlagStage,
+  createEnterpriseUser,
+  createFlagWord,
+  getBrainTrainingFiles,
+  getEnterpriseFlags,
+  getEnterpriseOrgTree,
+  getEnterpriseOverview,
+  getFlagWords,
+  reparentEnterpriseUser,
+  scanEnterpriseTranscript,
+  updateEnterpriseFlag,
+  uploadBrainTrainingFile,
 } from "../controllers/Enterprise.controller.js";
 
 const router = express.Router();
 
-router.get("/org/:enterpriseId/nodes", getEnterpriseOrgNodes);
+router.get("/enterprise/overview", getEnterpriseOverview);
+router.get("/enterprise/org-tree", getEnterpriseOrgTree);
+router.post("/enterprise/users", createEnterpriseUser);
+router.patch("/enterprise/users/:id/manager", reparentEnterpriseUser);
 
-router.get("/rules", getEnterpriseRules);
-router.post("/rules", createEnterpriseRule);
-router.delete("/rules/:ruleId", deleteEnterpriseRule);
+router.get("/enterprise/brain/files", getBrainTrainingFiles);
+router.post("/enterprise/brain/files", upload.single("file"), uploadBrainTrainingFile);
 
-router.get("/meetings", getEnterpriseMeetings);
-router.post("/meetings/:meetingId/extract-flags", extractMeetingFlags);
-router.get("/meetings/:meetingId/flags", getEnterpriseMeetingFlags);
+router.get("/enterprise/flag-words", getFlagWords);
+router.post("/enterprise/flag-words", createFlagWord);
 
-router.patch("/flags/:flagId/stage", updateEnterpriseFlagStage);
-
-router.get("/dashboard/owner", getEnterpriseOwnerDashboard);
-router.get("/dashboard/manager", getEnterpriseManagerDashboard);
-router.get("/dashboard/user", getEnterpriseUserDashboard);
+router.get("/enterprise/flags", getEnterpriseFlags);
+router.patch("/enterprise/flags/:id", updateEnterpriseFlag);
+router.post("/enterprise/transcripts/:meetingId/scan", scanEnterpriseTranscript);
 
 export default router;

@@ -68,7 +68,7 @@ import TranscribeLiveRouter from "./routes/transcribe-live.routes.js";
 import AnalyticsRouter from "./routes/Analytics.routes.js";
 import MigratedNextRouter from "./routes/migrated-next.routes.js";
 import TranscriptRouter from "./routes/transcript.js"; // 👈 Import the new route
-import EnterpriseRouter from "./routes/enterprise.routes.js";
+import EnterpriseRouter from "./routes/Enterprise.routes.js";
 
 console.log("✅ All routes imported!"); // 👈 Add this
 // Register routes
