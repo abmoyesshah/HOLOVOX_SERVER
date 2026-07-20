@@ -35,17 +35,9 @@
     "nodemailer": "^6.9.15",
     "nodemon": "^3.1.4",
     "openai": "^6.48.0",
-<<<<<<< HEAD
-    "pdf-parse": "^2.4.5",
-=======
->>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
     "pdf2json": "^4.0.3",
     "resend": "^6.12.2",
     "socket.io": "^4.8.3",
     "stripe": "^17.4.0"
   }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4

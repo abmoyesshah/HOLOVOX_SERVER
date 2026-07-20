@@ -4,10 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 // import connectDB from "../lib/db.js";
 import Transcript from "../models/Transcript.model.js";
-<<<<<<< HEAD
-=======
 import { syncEnterpriseTranscript } from "../services/enterprise/enterpriseMeetingSync.service.js";
->>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
 
 const anthropic = new Anthropic({
   apiKey: process.env.CLOUDAPI,
@@ -66,8 +63,6 @@ const transcribeAudio = asyncHandler(async (req, res) => {
       text,
     });
 
-<<<<<<< HEAD
-=======
     // 🏢 ENTERPRISE BRIDGE (best-effort, never blocks/fails the normal transcript flow)
     // No-op for regular (non-enterprise) meetings. If the meeting's host is an
     // EnterpriseProfile member, this creates a MeetingTranscript row and runs
@@ -81,7 +76,6 @@ const transcribeAudio = asyncHandler(async (req, res) => {
       console.error("Enterprise transcript sync failed:", error.message),
     );
 
->>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
     // CLAUDE SUMMARY
     const summaryResponse = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
