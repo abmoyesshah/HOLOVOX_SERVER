@@ -79,6 +79,6 @@ UserFlagSchema.index(
 );
 
 const UserFlag =
-  mongoose.models.UserFlag || mongoose.model("UserFlag", UserFlagSchema);
+  mongoose.models.UserFlag || mongoose.model("UserFlag", UserFlagSchema, "enterpriseflags");
 
 export default UserFlag;

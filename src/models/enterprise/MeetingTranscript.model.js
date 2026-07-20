@@ -45,6 +45,6 @@ MeetingTranscriptSchema.index({ organizationId: 1, meetingId: 1 });
 
 const MeetingTranscript =
   mongoose.models.MeetingTranscript ||
-  mongoose.model("MeetingTranscript", MeetingTranscriptSchema);
+  mongoose.model("MeetingTranscript", MeetingTranscriptSchema, "enterprisetranscripts");
 
 export default MeetingTranscript;
