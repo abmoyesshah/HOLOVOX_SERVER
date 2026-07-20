@@ -3,7 +3,30 @@ import express, { urlencoded } from "express";
 import cors from "cors";
 import { connectDB } from "./db/DB.js";
 const app = express();
-app.use(cors({ origin: "*" }));
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    const allowedOrigins = [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "https://holovox.io",
+      "https://www.holovox.io",
+    ];
+
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(null, true);
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "Accept"],
+  credentials: false,
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
