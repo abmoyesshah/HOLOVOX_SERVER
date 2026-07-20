@@ -70,11 +70,11 @@ registerNextRoute(router, "/api/stripe/confirm-order", route27, ["post", "get"])
 registerNextRoute(router, "/api/stripe/create-checkout", route28, ["post"]);
 registerNextRoute(router, "/api/upload", route29, ["post"]);
 registerNextRoute(router, "/api/user/profile", route30, ["get"]);
-registerNextRoute(router, "/api/user/profile", route30, ["put"]);
+registerNextRoute(router, "/api/user/profile", route30, ["put","get"]);
 registerNextRoute(router, "/api/user/freeTrial", route31, ["get","post","put"]);
 registerNextRoute(router, "/api/user/billing", route32, ["get","post"]);
 registerNextRoute(router, "/api/user/change-password", route33, ["get","post","put"]);
 registerNextRoute(router, "/api/enterprise/manager/reps", route34, ["get","post","put"]);
-registerNextRoute(router, "/api/enterprise/manager/flags", route34, ["get","post","put"]);
+registerNextRoute(router, "/api/enterprise/manager/flags", route35, ["get","post","put"]);
 
 export default router;
