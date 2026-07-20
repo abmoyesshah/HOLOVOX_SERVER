@@ -6,7 +6,7 @@ import FlagWord from "../models/enterprise/FlagWord.model.js";
 import UserFlag from "../models/enterprise/UserFlag.model.js";
 import { ensureOwner, requireEnterpriseActor, canManageMember } from "../services/enterprise/enterpriseAccess.service.js";
 import { buildOrgTree } from "../services/enterprise/orgTree.service.js";
-import { extractTextFromUpload, parseTrainingWords } from "../services/enterprise/brainIngestion.service.js";
+import { extractTextFromUpload, getDefaultTrainingWordType, parseTrainingWords } from "../services/enterprise/brainIngestion.service.js";
 import { getOverviewPayload } from "../services/enterprise/overviewMetrics.service.js";
 import { scanTranscriptForFlags } from "../services/enterprise/transcriptFlagScanner.service.js";
 import sendMail from "../utils/Nodemailer.js";
@@ -162,7 +162,7 @@ export const uploadBrainTrainingFile = async (req, res) => {
   } catch (error) {
     parseError = error.message || "Failed to parse training file";
   }
-  const words = parseTrainingWords(extractedText);
+  const words = parseTrainingWords(extractedText, getDefaultTrainingWordType(file.originalname));
   const brainFile = await BrainTrainingFile.create({
     organizationId: actor.organization._id,
     uploadedBy: actor.id,

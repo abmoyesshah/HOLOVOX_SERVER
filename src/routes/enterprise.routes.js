@@ -16,19 +16,32 @@ import {
 
 const router = express.Router();
 
-router.get("/enterprise/overview", getEnterpriseOverview);
-router.get("/enterprise/org-tree", getEnterpriseOrgTree);
-router.post("/enterprise/users", createEnterpriseUser);
-router.patch("/enterprise/users/:id/manager", reparentEnterpriseUser);
+const asyncRoute = (handler) => (req, res, next) => {
+  Promise.resolve(handler(req, res, next)).catch(next);
+};
 
-router.get("/enterprise/brain/files", getBrainTrainingFiles);
-router.post("/enterprise/brain/files", upload.single("file"), uploadBrainTrainingFile);
+router.get("/enterprise/overview", asyncRoute(getEnterpriseOverview));
+router.get("/enterprise/org-tree", asyncRoute(getEnterpriseOrgTree));
+router.post("/enterprise/users", asyncRoute(createEnterpriseUser));
+router.patch("/enterprise/users/:id/manager", asyncRoute(reparentEnterpriseUser));
 
-router.get("/enterprise/flag-words", getFlagWords);
-router.post("/enterprise/flag-words", createFlagWord);
+router.get("/enterprise/brain/files", asyncRoute(getBrainTrainingFiles));
+router.post("/enterprise/brain/files", upload.single("file"), asyncRoute(uploadBrainTrainingFile));
 
-router.get("/enterprise/flags", getEnterpriseFlags);
-router.patch("/enterprise/flags/:id", updateEnterpriseFlag);
-router.post("/enterprise/transcripts/:meetingId/scan", scanEnterpriseTranscript);
+router.get("/enterprise/flag-words", asyncRoute(getFlagWords));
+router.post("/enterprise/flag-words", asyncRoute(createFlagWord));
+
+router.get("/enterprise/flags", asyncRoute(getEnterpriseFlags));
+router.patch("/enterprise/flags/:id", asyncRoute(updateEnterpriseFlag));
+router.post("/enterprise/transcripts/:meetingId/scan", asyncRoute(scanEnterpriseTranscript));
+
+router.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  console.error("Enterprise route error:", error);
+  return res.status(error.statusCode || 500).json({
+    success: false,
+    error: error.message || "Enterprise request failed",
+  });
+});
 
 export default router;

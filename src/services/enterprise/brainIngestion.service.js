@@ -23,15 +23,21 @@ const isXlsxFile = (file) =>
 const extractTextFromPdf = (buffer) =>
   new Promise((resolve, reject) => {
     const parser = new PDFParser();
+    const timeout = setTimeout(() => {
+      reject(new Error("PDF parsing timed out"));
+    }, 20000);
 
     parser.on("pdfParser_dataError", (error) => {
+      clearTimeout(timeout);
       reject(error?.parserError || error || new Error("Failed to parse PDF"));
     });
 
     parser.on("pdfParser_dataReady", () => {
       try {
+        clearTimeout(timeout);
         resolve(parser.getRawTextContent().replace(/\r/g, "\n"));
       } catch (error) {
+        clearTimeout(timeout);
         reject(error);
       }
     });
@@ -123,7 +129,10 @@ export const extractTextFromUpload = async (file) => {
   return "";
 };
 
-export const parseTrainingWords = (text) => {
+export const getDefaultTrainingWordType = (fileName = "") =>
+  /permit|allowed|allow/i.test(fileName) ? "permitted" : "flag";
+
+export const parseTrainingWords = (text, defaultType = "flag") => {
   const words = [];
   const lines = String(text || "")
     .split(/\r?\n|,/)
@@ -136,7 +145,9 @@ export const parseTrainingWords = (text) => {
       ? /permit|allow/i.test(match[1])
         ? "permitted"
         : "flag"
-      : "flag";
+      : defaultType === "permitted"
+        ? "permitted"
+        : "flag";
     const rawWord = match ? match[2] : line;
     const word = rawWord.replace(/^["']|["']$/g, "").trim();
     const normalizedWord = normalizeWord(word);
