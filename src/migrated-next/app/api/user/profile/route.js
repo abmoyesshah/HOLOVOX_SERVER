@@ -55,7 +55,7 @@ export async function GET(req, res) {
           fullName: user.fullName || user.name,
           email: user.email,
           role: user.role,
-          subscription: user.subscription || 'free',
+          subscription: user.Subscription || 'free',
           profilePicture: user.profilePicture || user.ProfilePicture || null,
           isOtpVerified: user.isOtpVerified || false,
           verified: user.verified || false,

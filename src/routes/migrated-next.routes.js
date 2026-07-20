@@ -33,6 +33,7 @@ import * as route29 from "../migrated-next/app/api/upload/route.js";
 import * as route30 from "../migrated-next/app/api/user/profile/route.js";
 import * as route31 from "../migrated-next/app/api/user/freeTrial/route.js";
 import * as route32 from "../migrated-next/app/api/user/billing/route.js";
+import * as route33 from "../migrated-next/app/api/user/change-password/route.js";
 
 const router = express.Router();
 
@@ -70,5 +71,6 @@ registerNextRoute(router, "/api/user/profile", route30, ["get"]);
 registerNextRoute(router, "/api/user/profile", route30, ["put"]);
 registerNextRoute(router, "/api/user/freeTrial", route31, ["get","post","put"]);
 registerNextRoute(router, "/api/user/billing", route32, ["get","post"]);
+registerNextRoute(router, "/api/user/change-password", route33, ["get","post","put"]);
 
 export default router;

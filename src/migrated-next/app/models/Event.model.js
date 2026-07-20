@@ -42,6 +42,7 @@ const EventSchema = new mongoose.Schema(
         "recording.started",
         "recording.stopped",
         "recording.ready",
+        "password.changed",
       ],
     },
     entityId: {
