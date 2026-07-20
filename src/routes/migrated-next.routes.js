@@ -35,6 +35,7 @@ import * as route31 from "../migrated-next/app/api/user/freeTrial/route.js";
 import * as route32 from "../migrated-next/app/api/user/billing/route.js";
 import * as route33 from "../migrated-next/app/api/user/change-password/route.js";
 
+
 const router = express.Router();
 
 registerNextRoute(router, "/api/admin/bundles", route0, ["get", "post"]);
