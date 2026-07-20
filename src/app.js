@@ -4,6 +4,18 @@ import cors from "cors";
 import { connectDB } from "./db/DB.js";
 const app = express();
 
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Vary", "Origin");
+  }
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 const corsOptions = {
   origin: (origin, callback) => {
     const allowedOrigins = [
