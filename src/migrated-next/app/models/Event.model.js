@@ -108,24 +108,7 @@ EventSchema.statics.createEvent = async function(data) {
   });
 };
 
-EventSchema.statics.getUnreadCount = function(userId) {
-  return this.countDocuments({ userId, isRead: false });
-};
 
-EventSchema.statics.markAsRead = function(userId, eventId = null) {
-  const query = { userId };
-  if (eventId) {
-    query._id = eventId;
-  }
-  return this.updateMany(query, { isRead: true });
-};
-
-EventSchema.statics.getUserEvents = function(userId, limit = 50) {
-  return this.find({ userId })
-    .sort({ createdAt: -1 })
-    .limit(limit)
-    .lean();
-};
 
 const Event = mongoose.models.Event || mongoose.model("Event", EventSchema);
 
