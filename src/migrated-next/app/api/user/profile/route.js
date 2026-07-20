@@ -31,7 +31,7 @@ export async function GET(req, res) {
     }
 
     // Find user by ID
-    const user = await User.findById(userId)
+    let user = await User.findById(userId)
       .select('-password -__v');
       
       if (!user) {
