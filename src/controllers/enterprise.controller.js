@@ -4,8 +4,10 @@ import EnterpriseProfile from "../migrated-next/app/models/EnterpriseProfile.mod
 import BrainTrainingFile from "../models/enterprise/BrainTrainingFile.model.js";
 import FlagWord from "../models/enterprise/FlagWord.model.js";
 import UserFlag from "../models/enterprise/UserFlag.model.js";
+import MeetingTranscript from "../models/enterprise/MeetingTranscript.model.js";
+import MeetingModel from "../models/Meeting.model.js";
 import { ensureOwner, requireEnterpriseActor, canManageMember } from "../services/enterprise/enterpriseAccess.service.js";
-import { buildOrgTree } from "../services/enterprise/orgTree.service.js";
+import { buildOrgTree, getVisibleMembers } from "../services/enterprise/orgTree.service.js";
 import { extractTextFromUpload, parseTrainingWords } from "../services/enterprise/brainIngestion.service.js";
 import { getOverviewPayload } from "../services/enterprise/overviewMetrics.service.js";
 import { scanTranscriptForFlags } from "../services/enterprise/transcriptFlagScanner.service.js";
@@ -288,4 +290,88 @@ export const scanEnterpriseTranscript = async (req, res) => {
     hostMemberId: hostMemberId && isObjectId(hostMemberId) ? hostMemberId : actor.member?._id,
   });
   res.status(201).json({ success: true, data: { transcript: result.transcript, flags: result.flags } });
+};
+
+// GET /enterprise/meetings
+// Lists meetings hosted by anyone the actor can see:
+//  - owner  -> every member in the organization
+//  - manager -> themself + their direct reports
+//  - rep/user -> just themself
+// This was previously missing entirely, which is why owners/managers had no
+// way to see meetings at all: the dashboard had /overview, /org-tree, and
+// /flags, but nothing that lists the underlying Meeting documents scoped to
+// the organization. Meeting.model.js has no organizationId field, so we
+// resolve visibility the same way orgTree/overview do: find the member ids
+// the actor may see, then query Meeting by hostId.
+export const getEnterpriseMeetings = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+
+  const members = await getVisibleMembers(actor);
+  const hostIds = members.map((member) => member._id);
+  // Owner can also be the host of their own (non-EnterpriseProfile) account.
+  if (actor.role === "owner") hostIds.push(actor.ownerId);
+
+  const meetings = await MeetingModel.find({
+    hostId: { $in: hostIds },
+    isDeleted: false,
+  })
+    .sort({ meetingDate: -1, createdAt: -1 })
+    .lean();
+
+  const memberById = new Map(members.map((member) => [String(member._id), member]));
+  const data = meetings.map((meeting) => ({
+    ...meeting,
+    host: memberById.get(String(meeting.hostId))
+      ? {
+          id: meeting.hostId,
+          fullName: memberById.get(String(meeting.hostId)).fullName,
+          role: memberById.get(String(meeting.hostId)).role,
+        }
+      : null,
+  }));
+
+  res.status(200).json({ success: true, data });
+};
+
+// GET /enterprise/meetings/:meetingId
+// Detail view for a single meeting: the Meeting document itself plus its
+// enterprise transcript chunks and any flags raised against it, scoped to
+// what the actor is allowed to see (managers only get flags with their own
+// managerId, same rule as getEnterpriseFlags).
+export const getEnterpriseMeetingDetail = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+
+  const { meetingId } = req.params;
+  if (!meetingId) {
+    return res.status(400).json({ success: false, error: "meetingId is required" });
+  }
+
+  const members = await getVisibleMembers(actor);
+  const hostIds = members.map((member) => member._id);
+  if (actor.role === "owner") hostIds.push(actor.ownerId);
+
+  const meeting = await MeetingModel.findOne({
+    meetingId,
+    hostId: { $in: hostIds },
+  }).lean();
+  if (!meeting) {
+    return res.status(404).json({ success: false, error: "Meeting not found" });
+  }
+
+  const transcriptQuery = { organizationId: actor.organization._id, meetingId };
+  const flagQuery = { organizationId: actor.organization._id, meetingId };
+  if (actor.role === "manager") flagQuery.managerId = actor.id;
+
+  const [transcripts, flags] = await Promise.all([
+    MeetingTranscript.find(transcriptQuery).sort({ createdAt: 1 }).lean(),
+    UserFlag.find(flagQuery)
+      .populate("flaggedMemberId", "fullName email role parentId")
+      .populate("flagWordId", "word type severity")
+      .sort({ createdAt: -1 })
+      .lean(),
+  ]);
+
+  res.status(200).json({ success: true, data: { meeting, transcripts, flags } });
 };

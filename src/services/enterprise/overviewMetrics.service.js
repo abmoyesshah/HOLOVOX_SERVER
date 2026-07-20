@@ -17,9 +17,20 @@ export const getOverviewPayload = async (actor) => {
     .lean();
 
   const openFlags = flags.filter((flag) => flag.status !== "resolved");
+  // Count a transcript as "theirs" if either the speaker OR the meeting
+  // host resolves to one of their visible members. participantMemberId
+  // alone undercounts, since guest/unresolved speakers leave it null even
+  // when the transcript came from one of their reps' meetings.
   const transcriptCount = await MeetingTranscript.countDocuments({
     organizationId: actor.organization._id,
-    ...(memberIds.length ? { participantMemberId: { $in: memberIds } } : {}),
+    ...(memberIds.length
+      ? {
+          $or: [
+            { participantMemberId: { $in: memberIds } },
+            { hostMemberId: { $in: memberIds } },
+          ],
+        }
+      : {}),
   });
 
   const managers = members.filter((member) => member.role === "manager");
