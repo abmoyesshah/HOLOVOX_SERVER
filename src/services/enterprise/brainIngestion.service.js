@@ -1,6 +1,114 @@
+import zlib from "node:zlib";
+import PDFParser from "pdf2json";
+
 const normalizeWord = (word) => word.toLowerCase().replace(/[^\w\s'-]/g, "").trim();
 
-export const extractTextFromUpload = (file) => {
+const decodeXmlEntities = (value) =>
+  String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+
+const stripXmlTags = (value) => decodeXmlEntities(String(value || "").replace(/<[^>]+>/g, " "));
+
+const isPdfFile = (file) =>
+  file?.mimetype === "application/pdf" || /\.pdf$/i.test(file?.originalname || "");
+
+const isXlsxFile = (file) =>
+  file?.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+  /\.xlsx$/i.test(file?.originalname || "");
+
+const extractTextFromPdf = (buffer) =>
+  new Promise((resolve, reject) => {
+    const parser = new PDFParser();
+
+    parser.on("pdfParser_dataError", (error) => {
+      reject(error?.parserError || error || new Error("Failed to parse PDF"));
+    });
+
+    parser.on("pdfParser_dataReady", () => {
+      try {
+        resolve(parser.getRawTextContent().replace(/\r/g, "\n"));
+      } catch (error) {
+        reject(error);
+      }
+    });
+
+    parser.parseBuffer(buffer);
+  });
+
+const readZipEntries = (buffer) => {
+  const entries = new Map();
+  const eocdSignature = 0x06054b50;
+  let eocdOffset = -1;
+
+  for (let i = buffer.length - 22; i >= 0; i--) {
+    if (buffer.readUInt32LE(i) === eocdSignature) {
+      eocdOffset = i;
+      break;
+    }
+  }
+
+  if (eocdOffset < 0) return entries;
+
+  const centralDirectorySize = buffer.readUInt32LE(eocdOffset + 12);
+  const centralDirectoryOffset = buffer.readUInt32LE(eocdOffset + 16);
+  const centralDirectoryEnd = centralDirectoryOffset + centralDirectorySize;
+  let offset = centralDirectoryOffset;
+
+  while (offset < centralDirectoryEnd && buffer.readUInt32LE(offset) === 0x02014b50) {
+    const compressionMethod = buffer.readUInt16LE(offset + 10);
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const fileNameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const localHeaderOffset = buffer.readUInt32LE(offset + 42);
+    const fileName = buffer.toString("utf8", offset + 46, offset + 46 + fileNameLength);
+
+    const localNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
+    const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength;
+    const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
+
+    let content = null;
+    if (compressionMethod === 0) {
+      content = compressed;
+    } else if (compressionMethod === 8) {
+      content = zlib.inflateRawSync(compressed);
+    }
+
+    if (content) entries.set(fileName, content);
+    offset += 46 + fileNameLength + extraLength + commentLength;
+  }
+
+  return entries;
+};
+
+const extractTextFromXlsx = (buffer) => {
+  const entries = readZipEntries(buffer);
+  const chunks = [];
+
+  for (const [name, content] of entries) {
+    if (
+      name === "xl/sharedStrings.xml" ||
+      /^xl\/worksheets\/sheet\d+\.xml$/i.test(name)
+    ) {
+      const xml = content.toString("utf8");
+      const textNodes = [...xml.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((match) => decodeXmlEntities(match[1]));
+      if (textNodes.length) {
+        chunks.push(textNodes.join("\n"));
+      } else {
+        chunks.push(stripXmlTags(xml));
+      }
+    }
+  }
+
+  return chunks.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+};
+
+export const extractTextFromUpload = async (file) => {
   if (!file?.buffer) return "";
   const textLike =
     file.mimetype?.startsWith("text/") ||
@@ -8,8 +116,11 @@ export const extractTextFromUpload = (file) => {
     file.mimetype?.includes("csv") ||
     /\.(txt|csv|json|md)$/i.test(file.originalname || "");
 
-  if (!textLike) return "";
-  return file.buffer.toString("utf8");
+  if (textLike) return file.buffer.toString("utf8");
+  if (isPdfFile(file)) return extractTextFromPdf(file.buffer);
+  if (isXlsxFile(file)) return extractTextFromXlsx(file.buffer);
+
+  return "";
 };
 
 export const parseTrainingWords = (text) => {
