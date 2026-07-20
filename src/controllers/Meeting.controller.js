@@ -3,6 +3,10 @@ import sendMail from "../utils/Nodemailer.js";
 import bcrypt from "bcrypt";
 import Event from "../models/Event.model.js";
 import Profile from "../models/Profile.model.js";
+import {
+  markEnterpriseMeetingEnded,
+  syncEnterpriseMeetingFromMeeting,
+} from "../services/enterprise/enterpriseMeetingSync.service.js";
 
 const shareMeetingTemplate = (
   meetingLink,
@@ -288,6 +292,11 @@ export const createMeeting = async (req, res) => {
         },
       ],
     });
+
+    syncEnterpriseMeetingFromMeeting(meeting).catch((error) =>
+      console.error("Enterprise meeting create sync failed:", error.message),
+    );
+
     await Event.create({
       userId: hostId,
       type: "meeting.created",
@@ -725,6 +734,10 @@ export const joinMeeting = async (req, res) => {
       });
     }
 
+    syncEnterpriseMeetingFromMeeting(meeting, "live").catch((error) =>
+      console.error("Enterprise meeting join sync failed:", error.message),
+    );
+
     return res.status(200).json({
       success: true,
       meeting,
@@ -851,6 +864,13 @@ export const endMeeting = async (req, res) => {
     participant.end = true;
 
     await meeting.save();
+
+    const enterpriseEndSync = meeting.participants.every((p) => p.end === true)
+      ? markEnterpriseMeetingEnded(meeting)
+      : syncEnterpriseMeetingFromMeeting(meeting, "live");
+    enterpriseEndSync.catch((error) =>
+      console.error("Enterprise meeting end sync failed:", error.message),
+    );
 
     await Event.create({
       userId: userId,

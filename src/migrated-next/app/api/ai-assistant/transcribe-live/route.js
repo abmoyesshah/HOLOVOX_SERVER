@@ -12,6 +12,7 @@ import {
   saveAssistMemory,
 } from "../../../../lib/ai-assistant/context-builder.js";
 import { resolveRequestUserId } from "../../../../lib/auth-user.js";
+import { syncEnterpriseTranscript } from "../../../../../services/enterprise/enterpriseMeetingSync.service.js";
 
 export const runtime = "nodejs";
 
@@ -141,6 +142,14 @@ const text = transcription.text || "";
         participantName,
         text: text,
       });
+      syncEnterpriseTranscript({
+        roomId,
+        participantId,
+        participantName,
+        text,
+      }).catch((error) =>
+        console.error("Enterprise transcript sync failed:", error.message),
+      );
     }
 
     if (!text || text.trim() === "") {

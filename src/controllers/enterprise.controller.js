@@ -5,6 +5,7 @@ import BrainTrainingFile from "../models/enterprise/BrainTrainingFile.model.js";
 import FlagWord from "../models/enterprise/FlagWord.model.js";
 import UserFlag from "../models/enterprise/UserFlag.model.js";
 import MeetingTranscript from "../models/enterprise/MeetingTranscript.model.js";
+import EnterpriseMeeting from "../models/enterprise/EnterpriseMeeting.model.js";
 import MeetingModel from "../models/Meeting.model.js";
 import { ensureOwner, requireEnterpriseActor, canManageMember } from "../services/enterprise/enterpriseAccess.service.js";
 import { buildOrgTree, getVisibleMembers } from "../services/enterprise/orgTree.service.js";
@@ -307,31 +308,27 @@ export const getEnterpriseMeetings = async (req, res) => {
   const actor = await requireEnterpriseActor(req, res);
   if (!actor) return;
 
-  const members = await getVisibleMembers(actor);
-  const hostIds = members.map((member) => member._id);
-  // Owner can also be the host of their own (non-EnterpriseProfile) account.
-  if (actor.role === "owner") hostIds.push(actor.ownerId);
+  const query = { organizationId: actor.organization._id };
+  if (actor.role === "manager") {
+    const visibleMembers = await getVisibleMembers(actor);
+    query.$or = [
+      { hostMemberId: actor.id },
+      { participantMemberIds: { $in: visibleMembers.map((member) => member._id) } },
+    ];
+  } else if (actor.role === "rep") {
+    query.$or = [
+      { hostMemberId: actor.id },
+      { participantMemberIds: actor.id },
+    ];
+  }
 
-  const meetings = await MeetingModel.find({
-    hostId: { $in: hostIds },
-    isDeleted: false,
-  })
+  const meetings = await EnterpriseMeeting.find(query)
     .sort({ meetingDate: -1, createdAt: -1 })
+    .populate("hostMemberId", "fullName email role")
+    .populate("participantMemberIds", "fullName email role parentId")
     .lean();
 
-  const memberById = new Map(members.map((member) => [String(member._id), member]));
-  const data = meetings.map((meeting) => ({
-    ...meeting,
-    host: memberById.get(String(meeting.hostId))
-      ? {
-          id: meeting.hostId,
-          fullName: memberById.get(String(meeting.hostId)).fullName,
-          role: memberById.get(String(meeting.hostId)).role,
-        }
-      : null,
-  }));
-
-  res.status(200).json({ success: true, data });
+  res.status(200).json({ success: true, data: meetings });
 };
 
 // GET /enterprise/meetings/:meetingId
@@ -348,18 +345,38 @@ export const getEnterpriseMeetingDetail = async (req, res) => {
     return res.status(400).json({ success: false, error: "meetingId is required" });
   }
 
-  const members = await getVisibleMembers(actor);
-  const hostIds = members.map((member) => member._id);
-  if (actor.role === "owner") hostIds.push(actor.ownerId);
-
-  const meeting = await MeetingModel.findOne({
+  const enterpriseMeeting = await EnterpriseMeeting.findOne({
+    organizationId: actor.organization._id,
     meetingId,
-    hostId: { $in: hostIds },
-  }).lean();
-  if (!meeting) {
+  })
+    .populate("hostMemberId", "fullName email role")
+    .populate("participantMemberIds", "fullName email role parentId")
+    .lean();
+  if (!enterpriseMeeting) {
     return res.status(404).json({ success: false, error: "Meeting not found" });
   }
 
+  if (actor.role === "manager") {
+    const visibleMembers = await getVisibleMembers(actor);
+    const visibleIds = new Set(visibleMembers.map((member) => String(member._id)));
+    const canSee =
+      String(enterpriseMeeting.hostMemberId?._id || enterpriseMeeting.hostMemberId || "") === String(actor.id) ||
+      (enterpriseMeeting.participantMemberIds || []).some((member) =>
+        visibleIds.has(String(member._id || member)),
+      );
+    if (!canSee) return res.status(404).json({ success: false, error: "Meeting not found" });
+  }
+
+  if (actor.role === "rep") {
+    const canSee =
+      String(enterpriseMeeting.hostMemberId?._id || enterpriseMeeting.hostMemberId || "") === String(actor.id) ||
+      (enterpriseMeeting.participantMemberIds || []).some((member) =>
+        String(member._id || member) === String(actor.id),
+      );
+    if (!canSee) return res.status(404).json({ success: false, error: "Meeting not found" });
+  }
+
+  const meeting = await MeetingModel.findOne({ meetingId }).lean();
   const transcriptQuery = { organizationId: actor.organization._id, meetingId };
   const flagQuery = { organizationId: actor.organization._id, meetingId };
   if (actor.role === "manager") flagQuery.managerId = actor.id;
@@ -373,5 +390,5 @@ export const getEnterpriseMeetingDetail = async (req, res) => {
       .lean(),
   ]);
 
-  res.status(200).json({ success: true, data: { meeting, transcripts, flags } });
+  res.status(200).json({ success: true, data: { enterpriseMeeting, meeting, transcripts, flags } });
 };

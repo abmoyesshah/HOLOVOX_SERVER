@@ -5,6 +5,8 @@ import {
   createFlagWord,
   getBrainTrainingFiles,
   getEnterpriseFlags,
+  getEnterpriseMeetingDetail,
+  getEnterpriseMeetings,
   getEnterpriseOrgTree,
   getEnterpriseOverview,
   getFlagWords,
@@ -34,6 +36,8 @@ router.post("/enterprise/flag-words", asyncRoute(createFlagWord));
 router.get("/enterprise/flags", asyncRoute(getEnterpriseFlags));
 router.patch("/enterprise/flags/:id", asyncRoute(updateEnterpriseFlag));
 router.post("/enterprise/transcripts/:meetingId/scan", asyncRoute(scanEnterpriseTranscript));
+router.get("/enterprise/meetings", asyncRoute(getEnterpriseMeetings));
+router.get("/enterprise/meetings/:meetingId", asyncRoute(getEnterpriseMeetingDetail));
 
 router.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
