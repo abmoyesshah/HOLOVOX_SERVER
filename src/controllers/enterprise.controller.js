@@ -6,7 +6,7 @@ import FlagWord from "../models/enterprise/FlagWord.model.js";
 import UserFlag from "../models/enterprise/UserFlag.model.js";
 import { ensureOwner, requireEnterpriseActor, canManageMember } from "../services/enterprise/enterpriseAccess.service.js";
 import { buildOrgTree } from "../services/enterprise/orgTree.service.js";
-import { extractTextFromUpload, getDefaultTrainingWordType, parseTrainingWords } from "../services/enterprise/brainIngestion.service.js";
+import { extractTextFromUpload, parseTrainingWords } from "../services/enterprise/brainIngestion.service.js";
 import { getOverviewPayload } from "../services/enterprise/overviewMetrics.service.js";
 import { scanTranscriptForFlags } from "../services/enterprise/transcriptFlagScanner.service.js";
 import sendMail from "../utils/Nodemailer.js";
@@ -155,14 +155,8 @@ export const uploadBrainTrainingFile = async (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ success: false, error: "Training file is required" });
 
-  let extractedText = "";
-  let parseError = "";
-  try {
-    extractedText = await extractTextFromUpload(file);
-  } catch (error) {
-    parseError = error.message || "Failed to parse training file";
-  }
-  const words = parseTrainingWords(extractedText, getDefaultTrainingWordType(file.originalname));
+  const { text: extractedText, error: extractError } = await extractTextFromUpload(file);
+  const words = parseTrainingWords(extractedText);
   const brainFile = await BrainTrainingFile.create({
     organizationId: actor.organization._id,
     uploadedBy: actor.id,
@@ -171,7 +165,7 @@ export const uploadBrainTrainingFile = async (req, res) => {
     size: file.size,
     extractedText,
     status: extractedText ? "ready" : "failed",
-    parseError: extractedText ? "" : parseError || "Only txt, csv, json, md, pdf, and xlsx files are parsed right now",
+    parseError: extractedText ? "" : extractError || "Failed to extract text from this file",
     flagWordCount: words.filter((word) => word.type === "flag").length,
     permittedWordCount: words.filter((word) => word.type === "permitted").length,
   });

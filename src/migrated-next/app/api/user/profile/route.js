@@ -1,5 +1,6 @@
 // app/api/user/profile/route.js
 import connectDB from "../../../../lib/db.js";
+import EnterpriseProfile from "../../../models/EnterpriseProfile.model.js";
 import User from "../../../models/Profile.model.js";
 
 console.log("✅ User profile route loaded");
@@ -32,9 +33,13 @@ export async function GET(req, res) {
     // Find user by ID
     const user = await User.findById(userId)
       .select('-password -__v');
-
-    if (!user) {
-      console.log("❌ User not found with ID:", userId);
+      
+      if (!user) {
+      user = await EnterpriseProfile.findById(userId)
+        .select('-password -__v');
+      }
+     if(!user){
+       console.log("❌ User not found with ID:", userId);
       return {
         status: 404,
         body: { 
@@ -42,7 +47,7 @@ export async function GET(req, res) {
           error: "User not found" 
         }
       };
-    }
+     }
 
     console.log("✅ User found:", user.email);
 

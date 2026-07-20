@@ -1,5 +1,5 @@
 import zlib from "node:zlib";
-import PDFParser from "pdf2json";
+import { PDFParse } from "pdf-parse";
 
 const normalizeWord = (word) => word.toLowerCase().replace(/[^\w\s'-]/g, "").trim();
 
@@ -20,30 +20,27 @@ const isXlsxFile = (file) =>
   file?.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
   /\.xlsx$/i.test(file?.originalname || "");
 
-const extractTextFromPdf = (buffer) =>
-  new Promise((resolve, reject) => {
-    const parser = new PDFParser();
-    const timeout = setTimeout(() => {
-      reject(new Error("PDF parsing timed out"));
-    }, 20000);
-
-    parser.on("pdfParser_dataError", (error) => {
-      clearTimeout(timeout);
-      reject(error?.parserError || error || new Error("Failed to parse PDF"));
-    });
-
-    parser.on("pdfParser_dataReady", () => {
-      try {
-        clearTimeout(timeout);
-        resolve(parser.getRawTextContent().replace(/\r/g, "\n"));
-      } catch (error) {
-        clearTimeout(timeout);
-        reject(error);
-      }
-    });
-
-    parser.parseBuffer(buffer);
+const extractTextFromPdf = async (buffer) => {
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error("PDF parsing timed out")), 20000);
   });
+
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const result = await Promise.race([parser.getText(), timeoutPromise]);
+    return String(result?.text || "")
+      .replace(/\r/g, "\n")
+      .replace(/^--\s*\d+\s*of\s*\d+\s*--$/gm, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  } catch (error) {
+    throw new Error(error?.message || "Failed to parse PDF");
+  } finally {
+    if (typeof parser.destroy === "function") {
+      await parser.destroy().catch(() => {});
+    }
+  }
+};
 
 const readZipEntries = (buffer) => {
   const entries = new Map();
@@ -115,18 +112,37 @@ const extractTextFromXlsx = (buffer) => {
 };
 
 export const extractTextFromUpload = async (file) => {
-  if (!file?.buffer) return "";
+  if (!file?.buffer) return { text: "", error: "No file contents were received" };
+
   const textLike =
     file.mimetype?.startsWith("text/") ||
     file.mimetype?.includes("json") ||
     file.mimetype?.includes("csv") ||
     /\.(txt|csv|json|md)$/i.test(file.originalname || "");
 
-  if (textLike) return file.buffer.toString("utf8");
-  if (isPdfFile(file)) return extractTextFromPdf(file.buffer);
-  if (isXlsxFile(file)) return extractTextFromXlsx(file.buffer);
+  try {
+    if (textLike) return { text: file.buffer.toString("utf8"), error: "" };
 
-  return "";
+    if (isPdfFile(file)) {
+      const text = await extractTextFromPdf(file.buffer);
+      return {
+        text,
+        error: text ? "" : "No extractable text was found in this PDF (it may be a scanned image without a text layer)",
+      };
+    }
+
+    if (isXlsxFile(file)) {
+      const text = extractTextFromXlsx(file.buffer);
+      return { text, error: text ? "" : "No text cells were found in this spreadsheet" };
+    }
+
+    return {
+      text: "",
+      error: "Unsupported file type. Supported formats: txt, csv, json, md, pdf, xlsx",
+    };
+  } catch (error) {
+    return { text: "", error: error?.message || "Failed to parse this file" };
+  }
 };
 
 export const getDefaultTrainingWordType = (fileName = "") =>
