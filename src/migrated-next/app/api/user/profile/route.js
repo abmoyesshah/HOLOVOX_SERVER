@@ -1,6 +1,9 @@
 // app/api/user/profile/route.js
 import connectDB from "../../../../lib/db.js";
+<<<<<<< HEAD
 import EnterpriseProfile from "../../../models/EnterpriseProfile.model.js";
+=======
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
 import User from "../../../models/Profile.model.js";
 
 console.log("✅ User profile route loaded");
@@ -31,6 +34,7 @@ export async function GET(req, res) {
     }
 
     // Find user by ID
+<<<<<<< HEAD
     let user = await User.findById(userId)
       .select('-password -__v');
       
@@ -40,6 +44,13 @@ export async function GET(req, res) {
       }
      if(!user){
        console.log("❌ User not found with ID:", userId);
+=======
+    const user = await User.findById(userId)
+      .select('-password -__v');
+
+    if (!user) {
+      console.log("❌ User not found with ID:", userId);
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
       return {
         status: 404,
         body: { 
@@ -47,7 +58,11 @@ export async function GET(req, res) {
           error: "User not found" 
         }
       };
+<<<<<<< HEAD
      }
+=======
+    }
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
 
     console.log("✅ User found:", user.email);
 

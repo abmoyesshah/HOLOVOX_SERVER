@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 // // app/api/ai-assistant/transcribe-live/route.js
 // import { NextResponse } from "next/server";
 // import { createClient } from "@deepgram/sdk";
@@ -486,6 +487,8 @@
 
 
 
+=======
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
 // app/api/ai-assistant/transcribe-live/route.js
 import { NextResponse } from "../../../../utils/next-response.js";
 // import { createClient } from "@deepgram/sdk";
@@ -565,6 +568,7 @@ export async function POST(req) {
       apiKey: process.env.OPENAI_API_KEY,
     });
 
+<<<<<<< HEAD
     // =============================================
     // 1. TRANSCRIPTION (OpenAI)
     // =============================================
@@ -590,6 +594,64 @@ export async function POST(req) {
     // =============================================
     // 2. SAVE TRANSCRIPT
     // =============================================
+=======
+    // const { result } = await deepgram.listen.prerecorded.transcribeFile(
+    //   buffer,
+    //   {
+    //     model: "nova-2",
+    //     smart_format: true,
+    //     language: "en",
+    //     ...(detectedMimeType ? { mimetype: detectedMimeType } : {}),
+    //   },
+    // );
+
+    // const deepgramChannels = Array.isArray(result?.results?.channels)
+    //   ? result.results.channels
+    //   : [];
+
+    // const deepgramAlternatives = Array.isArray(deepgramChannels[0]?.alternatives)
+    //   ? deepgramChannels[0].alternatives
+    //   : [];
+
+    // const primaryAlternative = deepgramAlternatives[0] || null;
+
+    // const deepgramDebug = {
+    //   duration: result?.metadata?.duration ?? null,
+    //   channels: deepgramChannels.length,
+    //   alternativesCount: deepgramAlternatives.length,
+    //   confidence:
+    //     typeof primaryAlternative?.confidence === "number"
+    //       ? primaryAlternative.confidence
+    //       : null,
+    //   wordsCount: Array.isArray(primaryAlternative?.words)
+    //     ? primaryAlternative.words.length
+    //     : 0,
+    // };
+
+    // const text =
+    //   result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
+
+
+const audioFile = new File(
+  [buffer],
+  audio.name || "audio.webm",
+  {
+    type: detectedMimeType || "audio/webm",
+  }
+);
+
+const transcription = await openai.audio.transcriptions.create({
+  file: audioFile,
+  model: "gpt-4o-transcribe", // or "whisper-1"
+  language: "en",
+});
+console.log("sending audio to Openapi...");
+
+const text = transcription.text || "";
+
+
+    // Save transcript
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
     let saved = null;
     if (text) {
       saved = await Transcript.create({
@@ -610,6 +672,7 @@ export async function POST(req) {
         audioBytes: buffer.length,
         mimeType: detectedMimeType,
         transcription: {
+<<<<<<< HEAD
           model: "gpt-4o-transcribe",
         },
       });
@@ -618,6 +681,14 @@ export async function POST(req) {
     // =============================================
     // 3. BUILD CONTEXT (OPTIONAL - Secondary)
     // =============================================
+=======
+  model: "gpt-4o-transcribe",
+},
+        // deepgram: deepgramDebug,
+      });
+    }
+
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
     const assistContext = await buildAssistContext({
       userId,
       roomId: typeof roomId === "string" ? roomId : "",
@@ -625,6 +696,7 @@ export async function POST(req) {
       queryText: text,
     });
 
+<<<<<<< HEAD
     // =============================================
     // 4. HOLO ASSIST - Generate Summary (Claude)
     // =============================================
@@ -667,6 +739,41 @@ Response Rules (Strict enforcement):
 - NEVER summarize the meeting.
 - ONLY output the single best sentence the host should say next.
 `,
+=======
+    // =====================================
+    // HOLO ASSIST - Generate Summary
+    // =====================================
+
+    const claudeResponse = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 140,
+
+      system: `
+You are Holo Assist.
+
+You are a real-time AI meeting assistant.
+
+    Use this context to guide your response:
+    ${buildContextPrompt(assistContext)}
+
+Your job is to assist the host during the conversation.
+
+Rules:
+    - Maximum 20 words.
+- Plain text only.
+- No markdown.
+- No bullet points.
+- Never repeat the transcript.
+    - Never explain your reasoning.
+    - Output the single most useful coaching suggestion or response.
+    - Priority enforcement:
+      1) Start from questionnaire/profile to shape tone, goals, and coaching style.
+      2) Use assistant persona for delivery style only.
+      3) Use recent memory/summaries only to maintain continuity.
+      4) Use brain evidence only when directly relevant to current input.
+      5) Let the current transcript chunk decide the immediate coaching point.
+    `,
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
 
       messages: [
         {
@@ -678,9 +785,15 @@ Response Rules (Strict enforcement):
 
     const summary = claudeResponse.content?.[0]?.text || "";
 
+<<<<<<< HEAD
     // =============================================
     // 5. SAVE SUMMARY TO DATABASE
     // =============================================
+=======
+    // =====================================
+    // SAVE SUMMARY TO DATABASE
+    // =====================================
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
 
     let savedSummary = null;
     let summaryError = null;
@@ -725,9 +838,15 @@ Response Rules (Strict enforcement):
       sourceRefs: assistContext.retrievedChunks.map((item) => item.fileName),
     });
 
+<<<<<<< HEAD
     // =============================================
     // 6. RETURN RESPONSE
     // =============================================
+=======
+    // =====================================
+    // RETURN RESPONSE
+    // =====================================
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
 
     return NextResponse.json({
       success: true,
@@ -845,6 +964,7 @@ export async function GET(request) {
     console.error("❌ GET error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+<<<<<<< HEAD
 }
 
 
@@ -1236,3 +1356,6 @@ export async function GET(request) {
 //     return NextResponse.json({ error: error.message }, { status: 500 });
 //   }
 // }
+=======
+}
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4

@@ -1,5 +1,9 @@
 import zlib from "node:zlib";
+<<<<<<< HEAD
 import { PDFParse } from "pdf-parse";
+=======
+import PDFParser from "pdf2json";
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
 
 const normalizeWord = (word) => word.toLowerCase().replace(/[^\w\s'-]/g, "").trim();
 
@@ -20,6 +24,7 @@ const isXlsxFile = (file) =>
   file?.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
   /\.xlsx$/i.test(file?.originalname || "");
 
+<<<<<<< HEAD
 const extractTextFromPdf = async (buffer) => {
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => reject(new Error("PDF parsing timed out")), 20000);
@@ -41,6 +46,32 @@ const extractTextFromPdf = async (buffer) => {
     }
   }
 };
+=======
+const extractTextFromPdf = (buffer) =>
+  new Promise((resolve, reject) => {
+    const parser = new PDFParser();
+    const timeout = setTimeout(() => {
+      reject(new Error("PDF parsing timed out"));
+    }, 20000);
+
+    parser.on("pdfParser_dataError", (error) => {
+      clearTimeout(timeout);
+      reject(error?.parserError || error || new Error("Failed to parse PDF"));
+    });
+
+    parser.on("pdfParser_dataReady", () => {
+      try {
+        clearTimeout(timeout);
+        resolve(parser.getRawTextContent().replace(/\r/g, "\n"));
+      } catch (error) {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    });
+
+    parser.parseBuffer(buffer);
+  });
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
 
 const readZipEntries = (buffer) => {
   const entries = new Map();
@@ -112,14 +143,19 @@ const extractTextFromXlsx = (buffer) => {
 };
 
 export const extractTextFromUpload = async (file) => {
+<<<<<<< HEAD
   if (!file?.buffer) return { text: "", error: "No file contents were received" };
 
+=======
+  if (!file?.buffer) return "";
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
   const textLike =
     file.mimetype?.startsWith("text/") ||
     file.mimetype?.includes("json") ||
     file.mimetype?.includes("csv") ||
     /\.(txt|csv|json|md)$/i.test(file.originalname || "");
 
+<<<<<<< HEAD
   try {
     if (textLike) return { text: file.buffer.toString("utf8"), error: "" };
 
@@ -143,6 +179,13 @@ export const extractTextFromUpload = async (file) => {
   } catch (error) {
     return { text: "", error: error?.message || "Failed to parse this file" };
   }
+=======
+  if (textLike) return file.buffer.toString("utf8");
+  if (isPdfFile(file)) return extractTextFromPdf(file.buffer);
+  if (isXlsxFile(file)) return extractTextFromXlsx(file.buffer);
+
+  return "";
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
 };
 
 export const getDefaultTrainingWordType = (fileName = "") =>
@@ -179,4 +222,8 @@ export const parseTrainingWords = (text, defaultType = "flag") => {
   }
 
   return words;
+<<<<<<< HEAD
 };
+=======
+};
+>>>>>>> 6192a9fe92f4bcdae86a39e37aa2150f22b61dc4
