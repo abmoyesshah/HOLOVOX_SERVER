@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import connectDB from "../../../../../lib/db.js";
 import MeetingModel from "../../../../../app/models/Meeting.model.js";
 import Transcript from "../../../../../app/models/Transcript.js";
+import Event from "../../../../../app/models/Event.model.js"
 
 // ✅ Force reload the model to clear cache
 // Delete any existing Task model from mongoose
