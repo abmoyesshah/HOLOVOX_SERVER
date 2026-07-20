@@ -155,7 +155,7 @@ export const uploadBrainTrainingFile = async (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ success: false, error: "Training file is required" });
 
-  const extractedText = await extractTextFromUpload(file);
+  const { text: extractedText, error: extractError } = await extractTextFromUpload(file);
   const words = parseTrainingWords(extractedText);
   const brainFile = await BrainTrainingFile.create({
     organizationId: actor.organization._id,
@@ -165,7 +165,7 @@ export const uploadBrainTrainingFile = async (req, res) => {
     size: file.size,
     extractedText,
     status: extractedText ? "ready" : "failed",
-    parseError: extractedText ? "" : "Only text, csv, json, and markdown files are parsed right now",
+    parseError: extractedText ? "" : extractError || "Failed to extract text from this file",
     flagWordCount: words.filter((word) => word.type === "flag").length,
     permittedWordCount: words.filter((word) => word.type === "permitted").length,
   });
