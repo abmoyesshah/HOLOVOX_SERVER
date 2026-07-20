@@ -30,6 +30,28 @@ const EnterpriseProfileSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    organizationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EnterpriseOrganization",
+      default: null,
+      index: true,
+    },
+    parentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EnterpriseProfile",
+      default: null,
+      index: true,
+    },
+    status: {
+      type: String,
+      enum: ["active", "invited", "disabled"],
+      default: "active",
+      index: true,
+    },
+    lastActiveAt: {
+      type: Date,
+      default: null,
+    },
     otp: {
       type: String,
       default: null,
@@ -76,13 +98,15 @@ const EnterpriseProfileSchema = new mongoose.Schema(
 // Indexes for faster queries
 EnterpriseProfileSchema.index({ email: 1 });
 EnterpriseProfileSchema.index({ enterpriseId: 1 });
+EnterpriseProfileSchema.index({ organizationId: 1, role: 1 });
+EnterpriseProfileSchema.index({ organizationId: 1, parentId: 1 });
 EnterpriseProfileSchema.index({ role: 1 });
 EnterpriseProfileSchema.index({ isVerified: 1 });
 
 // Update the updatedAt timestamp on save
 EnterpriseProfileSchema.pre("save", function (next) {
   this.updatedAt = new Date();
-  
+  next();
 });
 
 const EnterpriseProfile =
