@@ -1,7 +1,10 @@
 import zlib from "node:zlib";
 import PDFParser from "pdf2json";
 
-const normalizeWord = (word) => word.toLowerCase().replace(/[^\w\s'-]/g, "").trim();
+const stripListPrefix = (word) =>
+  String(word || "").replace(/^\s*\d+[\).:-]\s*/, "").trim();
+
+const normalizeWord = (word) => stripListPrefix(word).toLowerCase().replace(/[^\w\s'-]/g, "").trim();
 
 const decodeXmlEntities = (value) =>
   String(value || "")
@@ -149,7 +152,7 @@ export const parseTrainingWords = (text, defaultType = "flag") => {
         ? "permitted"
         : "flag";
     const rawWord = match ? match[2] : line;
-    const word = rawWord.replace(/^["']|["']$/g, "").trim();
+    const word = stripListPrefix(rawWord.replace(/^["']|["']$/g, ""));
     const normalizedWord = normalizeWord(word);
     if (!normalizedWord) continue;
 

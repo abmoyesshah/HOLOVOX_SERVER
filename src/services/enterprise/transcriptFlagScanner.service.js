@@ -12,10 +12,11 @@ const buildWordRegex = (value) => {
     .trim()
     .split(/\s+/)
     .filter(Boolean)
-    .map(escapeRegExp);
+  const matchTokens =
+    tokens.length > 1 && /^\d+$/.test(tokens[0]) ? tokens.slice(1) : tokens;
 
-  if (!tokens.length) return null;
-  return new RegExp(`\\b${tokens.join("[\\s\\W_]+")}\\b`, "i");
+  if (!matchTokens.length) return null;
+  return new RegExp(`\\b${matchTokens.map(escapeRegExp).join("[\\s\\W_]+")}\\b`, "i");
 };
 
 const quoteAround = (text, index, length) => {
@@ -38,6 +39,11 @@ export const scanTranscriptForFlags = async ({
   speakerRole,
   segment,
 }) => {
+  if (normalTranscriptId) {
+    const existingTranscript = await MeetingTranscript.findOne({ normalTranscriptId });
+    if (existingTranscript) return { transcript: existingTranscript, flags: [] };
+  }
+
   const transcript = await MeetingTranscript.create({
     organizationId,
     meetingId,

@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import MeetingModel from "../../models/Meeting.model.js";
+import Transcript from "../../models/Transcript.model.js";
 import Profile from "../../models/Profile.model.js";
 import EnterpriseProfile from "../../migrated-next/app/models/EnterpriseProfile.model.js";
 import EnterpriseMeeting from "../../models/enterprise/EnterpriseMeeting.model.js";
@@ -21,6 +22,18 @@ const uniqueObjectIds = (ids) => {
 };
 
 const normalizeEnterpriseMemberRole = (role) => (role === "manager" ? "manager" : "rep");
+
+const sameId = (left, right) => String(left || "") === String(right || "");
+
+const findEnterpriseMeetingByRoomId = async (roomId) => {
+  const enterpriseMeeting = await EnterpriseMeeting.findOne({ meetingId: roomId }).lean();
+  if (enterpriseMeeting) return enterpriseMeeting;
+
+  // Compatibility for any rows created while the collection name was singular.
+  return EnterpriseMeeting.collection.conn
+    .collection("enterprisemeeting")
+    .findOne({ meetingId: roomId });
+};
 
 const resolveEnterpriseParticipant = async (userId) => {
   if (!isObjectId(userId)) return null;
@@ -157,10 +170,10 @@ export const syncEnterpriseTranscript = async ({
 }) => {
   if (!roomId || !text || !text.trim()) return null;
 
-  let enterpriseMeeting = await EnterpriseMeeting.findOne({ meetingId: roomId })
-    .lean();
+  let enterpriseMeeting = await findEnterpriseMeetingByRoomId(roomId);
+  let meeting = null;
   if (!enterpriseMeeting) {
-    const meeting = await MeetingModel.findOne({ meetingId: roomId }).lean();
+    meeting = await MeetingModel.findOne({ meetingId: roomId }).lean();
     enterpriseMeeting = await syncEnterpriseMeetingFromMeeting(meeting);
   }
   if (!enterpriseMeeting?.organizationId) return null;
@@ -169,8 +182,8 @@ export const syncEnterpriseTranscript = async ({
   let speakerUserId = null;
   let speakerMemberId = null;
   let speakerRole = null;
-  if (isObjectId(participantId)) {
-    const participantIdentity = await resolveEnterpriseParticipant(participantId);
+
+  const applyParticipantIdentity = (participantIdentity) => {
     const sameOrganization =
       participantIdentity?.organizationId &&
       String(participantIdentity.organizationId) === String(enterpriseMeeting.organizationId);
@@ -179,6 +192,25 @@ export const syncEnterpriseTranscript = async ({
       speakerMemberId = participantIdentity.memberId || null;
       speakerUserId = participantIdentity.userId || null;
       speakerRole = participantIdentity.role;
+      return true;
+    }
+    return false;
+  };
+
+  if (isObjectId(participantId)) {
+    applyParticipantIdentity(await resolveEnterpriseParticipant(participantId));
+  }
+
+  if (!speakerRole) {
+    if (!meeting) meeting = await MeetingModel.findOne({ meetingId: roomId }).lean();
+    const normalizedName = String(participantName || "").trim().toLowerCase();
+    const meetingParticipant = (meeting?.participants || []).find((participant) => {
+      if (participantId && sameId(participant.userId, participantId)) return true;
+      return normalizedName && String(participant.name || "").trim().toLowerCase() === normalizedName;
+    });
+
+    if (meetingParticipant?.userId) {
+      applyParticipantIdentity(await resolveEnterpriseParticipant(meetingParticipant.userId));
     }
   }
 
@@ -196,4 +228,25 @@ export const syncEnterpriseTranscript = async ({
     speakerRole,
     segment,
   });
+};
+
+export const syncEnterpriseTranscriptsForMeeting = async (meetingInput) => {
+  const meetingId = meetingInput?.meetingId;
+  if (!meetingId) return { transcriptCount: 0, syncedCount: 0 };
+
+  const transcripts = await Transcript.find({ roomId: meetingId }).sort({ createdAt: 1 }).lean();
+  let syncedCount = 0;
+
+  for (const transcript of transcripts) {
+    const result = await syncEnterpriseTranscript({
+      roomId: transcript.roomId,
+      participantId: transcript.participantId,
+      participantName: transcript.participantName,
+      text: transcript.text,
+      normalTranscriptId: transcript._id,
+    });
+    if (result?.transcript) syncedCount += 1;
+  }
+
+  return { transcriptCount: transcripts.length, syncedCount };
 };
