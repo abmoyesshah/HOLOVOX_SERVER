@@ -2,6 +2,7 @@
 import { NextResponse } from "../../../../utils/next-response.js";
 import Profile from "../../../models/Profile.model.js";
 import FreeTrialProfiles from "../../../models/FreeTrialProfiles.model.js";
+import EnterpriseProfile from "../../../models/EnterpriseProfile.model.js";
 
 
 // Plan details configuration
@@ -63,7 +64,11 @@ export async function GET(req, res) {
         }
 
         // Find the user to get their details
-        const user = await Profile.findById(userId);
+        let user = await Profile.findById(userId);
+
+        if (!user){
+            user = await EnterpriseProfile.findById(userId);
+        }
         if (!user) {
             return NextResponse.json(
                 { 
