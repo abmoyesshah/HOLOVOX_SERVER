@@ -866,15 +866,27 @@ export const endMeeting = async (req, res) => {
 
     await meeting.save();
 
+    const isHostEnding = userId && String(meeting.hostId) === String(userId);
     const allParticipantsEnded = meeting.participants.every((p) => p.end === true);
-    const enterpriseEndSync = allParticipantsEnded
-      ? markEnterpriseMeetingEnded(meeting).then(() =>
-          syncEnterpriseTranscriptsForMeeting(meeting),
-        )
-      : syncEnterpriseMeetingFromMeeting(meeting, "live");
-    enterpriseEndSync.catch((error) =>
-      console.error("Enterprise meeting end sync failed:", error.message),
-    );
+    const shouldFinalizeMeeting = isHostEnding || allParticipantsEnded;
+
+    try {
+      if (shouldFinalizeMeeting) {
+        if (isHostEnding) {
+          meeting.participants.forEach((meetingParticipant) => {
+            meetingParticipant.end = true;
+          });
+          await meeting.save();
+        }
+
+        await markEnterpriseMeetingEnded(meeting);
+        await syncEnterpriseTranscriptsForMeeting(meeting);
+      } else {
+        await syncEnterpriseMeetingFromMeeting(meeting, "live");
+      }
+    } catch (error) {
+      console.error("Enterprise meeting end sync failed:", error.message);
+    }
 
     await Event.create({
       userId: userId,
