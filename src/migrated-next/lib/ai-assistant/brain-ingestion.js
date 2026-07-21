@@ -1,85 +1,125 @@
-import PDFParser from "pdf2json";
+// lib/brainingestion/index.js
+// This file is deprecated - use brain-chunking.service.js instead
+// Keeping for backward compatibility
+
+import { getFileFromGridFS, deleteFileFromGridFS } from "../gridfs.js";
 import BrainFile from "../../app/models/BrainFile.model.js";
 import BrainChunk from "../../app/models/BrainChunk.model.js";
-import { getBrainFilesBucket, toObjectId } from "../gridfs.js";
-import { chunkText, normalizeText, roughTokenCount, summarizeKeywords } from "./text-utils.js";
+import { processBrainFile } from "../../app/api/holo-assist/brain-chunking.service.js";
 
-async function streamToBuffer(stream) {
-  return await new Promise((resolve, reject) => {
-    const chunks = [];
-    stream.on("data", (chunk) => chunks.push(chunk));
-    stream.on("error", reject);
-    stream.on("end", () => resolve(Buffer.concat(chunks)));
-  });
-}
-
-async function extractTextFromBuffer(buffer, mimeType) {
-  if (!buffer || buffer.length === 0) return "";
-
-  if (mimeType === "application/pdf") {
-    const parser = new PDFParser();
-    const parsedText = await new Promise((resolve, reject) => {
-      parser.on("pdfParser_dataReady", (pdfData) => {
-        try {
-          const text = pdfData.Pages.map((page) =>
-            page.Texts.map((item) => decodeURIComponent(item.R?.[0]?.T || "")).join(" "),
-          ).join("\n");
-          resolve(text);
-        } catch (error) {
-          reject(error);
-        }
-      });
-      parser.on("pdfParser_dataError", (error) => reject(error));
-      parser.parseBuffer(buffer);
-    });
-
-    return normalizeText(parsedText);
-  }
-
-  return normalizeText(buffer.toString("utf-8"));
-}
-
+/**
+ * @deprecated Use processBrainFile from brain-chunking.service.js instead
+ * This function is kept for backward compatibility
+ */
 export async function ingestBrainFile(fileDoc) {
-  const bucket = await getBrainFilesBucket();
-  const downloadStream = bucket.openDownloadStream(toObjectId(fileDoc.gridfs_file_id));
-  const buffer = await streamToBuffer(downloadStream);
-
-  const text = await extractTextFromBuffer(buffer, fileDoc.file_type);
-  const chunks = chunkText(text);
-
-  await BrainChunk.deleteMany({ file_id: fileDoc._id.toString(), user_id: fileDoc.user_id });
-
-  if (chunks.length === 0) {
+  console.warn("⚠️ ingestBrainFile is deprecated. Use processBrainFile from brain-chunking.service.js");
+  
+  try {
+    // Get the file buffer from GridFS
+    const buffer = await getFileFromGridFS(fileDoc.gridfs_file_id, fileDoc.bucket_name || "brainFiles");
+    
+    // Use the new processing function
+    const result = await processBrainFile(
+      buffer,
+      {
+        fileName: fileDoc.file_name,
+        fileType: fileDoc.file_type,
+        fileSize: fileDoc.file_size,
+        gridfsFileId: fileDoc.gridfs_file_id,
+        bucketName: fileDoc.bucket_name || "brainFiles",
+      },
+      fileDoc.user_id
+    );
+    
+    return {
+      chunkCount: result.totalChunks,
+      parseChars: result.file?.parse_chars || 0,
+    };
+  } catch (error) {
+    console.error("Error in ingestBrainFile (deprecated):", error);
+    
+    // Update file status to failed
     await BrainFile.findByIdAndUpdate(fileDoc._id, {
       ingestion_status: "failed",
-      ingestion_error: "No extractable text found in file",
-      chunk_count: 0,
-      parse_chars: 0,
+      ingestion_error: error.message,
       last_ingested_at: new Date(),
     });
+    
+    throw error;
+  }
+}
 
-    return { chunkCount: 0, parseChars: 0 };
+/**
+ * @deprecated Use processMultipleBrainFiles from brain-chunking.service.js instead
+ */
+export async function ingestMultipleBrainFiles(fileDocs) {
+  console.warn("⚠️ ingestMultipleBrainFiles is deprecated. Use processMultipleBrainFiles from brain-chunking.service.js");
+  
+  const results = [];
+  for (const fileDoc of fileDocs) {
+    try {
+      const result = await ingestBrainFile(fileDoc);
+      results.push({ success: true, fileId: fileDoc._id, ...result });
+    } catch (error) {
+      results.push({ success: false, fileId: fileDoc._id, error: error.message });
+    }
+  }
+  return results;
+}
+
+/**
+ * Delete a brain file and its associated chunks
+ */
+export async function deleteBrainFile(fileId, userId) {
+  const fileDoc = await BrainFile.findOne({ _id: fileId, user_id: userId });
+  if (!fileDoc) {
+    throw new Error("File not found");
   }
 
-  const chunkDocs = chunks.map((textChunk, index) => ({
-    user_id: fileDoc.user_id,
-    file_id: fileDoc._id.toString(),
-    file_name: fileDoc.file_name,
-    chunk_index: index,
-    text: textChunk,
-    keywords: summarizeKeywords(textChunk),
-    token_count: roughTokenCount(textChunk),
-  }));
+  // Delete chunks
+  await BrainChunk.deleteMany({ file_id: fileId, user_id: userId });
 
-  await BrainChunk.insertMany(chunkDocs, { ordered: true });
+  // Delete from GridFS
+  await deleteFileFromGridFS(fileDoc.gridfs_file_id, fileDoc.bucket_name || "brainFiles");
 
-  await BrainFile.findByIdAndUpdate(fileDoc._id, {
-    ingestion_status: "ready",
-    ingestion_error: "",
-    chunk_count: chunkDocs.length,
-    parse_chars: text.length,
-    last_ingested_at: new Date(),
-  });
+  // Delete file record
+  await BrainFile.findByIdAndDelete(fileId);
 
-  return { chunkCount: chunkDocs.length, parseChars: text.length };
+  return { success: true };
+}
+
+/**
+ * Re-ingest a brain file (useful for updating after schema changes)
+ */
+export async function reingestBrainFile(fileId, userId) {
+  const fileDoc = await BrainFile.findOne({ _id: fileId, user_id: userId });
+  if (!fileDoc) {
+    throw new Error("File not found");
+  }
+
+  // Delete existing chunks
+  await BrainChunk.deleteMany({ file_id: fileId, user_id: userId });
+
+  // Re-ingest
+  return await ingestBrainFile(fileDoc);
+}
+
+/**
+ * Get file status and stats
+ */
+export async function getFileStatus(fileId, userId) {
+  const fileDoc = await BrainFile.findOne({ _id: fileId, user_id: userId });
+  if (!fileDoc) {
+    throw new Error("File not found");
+  }
+
+  const chunkCount = await BrainChunk.countDocuments({ file_id: fileId, user_id: userId });
+  
+  return {
+    file: fileDoc,
+    chunkCount,
+    status: fileDoc.ingestion_status,
+    error: fileDoc.ingestion_error,
+    lastIngested: fileDoc.last_ingested_at,
+  };
 }

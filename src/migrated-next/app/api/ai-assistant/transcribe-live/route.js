@@ -169,12 +169,13 @@ const text = transcription.text || "";
       });
     }
 
-    const assistContext = await buildAssistContext({
-      userId,
-      roomId: typeof roomId === "string" ? roomId : "",
-      sessionId,
-      queryText: text,
-    });
+   const assistContext = await buildAssistContext({
+  userId,
+  roomId: typeof roomId === "string" ? roomId : "",
+  sessionId,
+  queryText: text,
+});
+const contextPrompt = buildContextPrompt(assistContext);
 
     // =====================================
     // HOLO ASSIST - Generate Summary
@@ -190,7 +191,7 @@ You are Holo Assist.
 You are a real-time AI meeting assistant.
 
     Use this context to guide your response:
-    ${buildContextPrompt(assistContext)}
+    ${contextPrompt}
 
 Your job is to assist the host during the conversation.
 
