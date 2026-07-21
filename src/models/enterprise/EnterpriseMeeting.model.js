@@ -36,6 +36,24 @@ const EnterpriseMeetingSchema = new mongoose.Schema(
     hostRole: {
       type: String,
       enum: ["owner", "manager", "rep"],
+      default: null,
+      index: true,
+    },
+    enterpriseActorUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Profile",
+      default: null,
+      index: true,
+    },
+    enterpriseActorMemberId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EnterpriseProfile",
+      default: null,
+      index: true,
+    },
+    enterpriseActorRole: {
+      type: String,
+      enum: ["owner", "manager", "rep"],
       required: true,
       index: true,
     },
@@ -77,6 +95,6 @@ EnterpriseMeetingSchema.index({ organizationId: 1, status: 1 });
 
 const EnterpriseMeeting =
   mongoose.models.EnterpriseMeeting ||
-  mongoose.model("EnterpriseMeeting", EnterpriseMeetingSchema);
+  mongoose.model("EnterpriseMeeting", EnterpriseMeetingSchema, "enterprisemeeting");
 
 export default EnterpriseMeeting;

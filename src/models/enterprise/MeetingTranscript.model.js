@@ -14,6 +14,18 @@ const MeetingTranscriptSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+    enterpriseMeetingId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EnterpriseMeeting",
+      default: null,
+      index: true,
+    },
+    normalTranscriptId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Transcript",
+      default: null,
+      index: true,
+    },
     hostMemberId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,
@@ -29,9 +41,31 @@ const MeetingTranscriptSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    speakerUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Profile",
+      default: null,
+      index: true,
+    },
+    speakerMemberId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EnterpriseProfile",
+      default: null,
+      index: true,
+    },
+    speakerRole: {
+      type: String,
+      enum: ["owner", "manager", "rep"],
+      default: null,
+      index: true,
+    },
     text: {
       type: String,
       required: true,
+    },
+    segment: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
     },
     scannedAt: {
       type: Date,

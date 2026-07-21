@@ -14,6 +14,12 @@ const UserFlagSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+    enterpriseMeetingId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EnterpriseMeeting",
+      default: null,
+      index: true,
+    },
     transcriptId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "MeetingTranscript",
@@ -30,6 +36,24 @@ const UserFlagSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "EnterpriseProfile",
       default: null,
+      index: true,
+    },
+    speakerUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Profile",
+      default: null,
+      index: true,
+    },
+    speakerMemberId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EnterpriseProfile",
+      default: null,
+      index: true,
+    },
+    speakerRole: {
+      type: String,
+      enum: ["manager", "rep"],
+      required: true,
       index: true,
     },
     managerId: {
@@ -52,6 +76,15 @@ const UserFlagSchema = new mongoose.Schema(
       enum: ["low", "medium", "high"],
       default: "medium",
       index: true,
+    },
+    category: {
+      type: String,
+      default: "custom",
+      trim: true,
+    },
+    segment: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
     },
     status: {
       type: String,
@@ -79,6 +112,6 @@ UserFlagSchema.index(
 );
 
 const UserFlag =
-  mongoose.models.UserFlag || mongoose.model("UserFlag", UserFlagSchema, "enterpriseflags");
+  mongoose.models.UserFlag || mongoose.model("UserFlag", UserFlagSchema, "enterprisefags");
 
 export default UserFlag;
