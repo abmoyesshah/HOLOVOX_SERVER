@@ -95,6 +95,6 @@ EnterpriseMeetingSchema.index({ organizationId: 1, status: 1 });
 
 const EnterpriseMeeting =
   mongoose.models.EnterpriseMeeting ||
-  mongoose.model("EnterpriseMeeting", EnterpriseMeetingSchema, "enterprisemeetings");
+  mongoose.model("EnterpriseMeeting", EnterpriseMeetingSchema, "enterprisemeeting");
 
 export default EnterpriseMeeting;

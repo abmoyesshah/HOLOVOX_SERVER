@@ -6,6 +6,7 @@ import Profile from "../models/Profile.model.js";
 import {
   markEnterpriseMeetingEnded,
   syncEnterpriseMeetingFromMeeting,
+  syncEnterpriseTranscriptsForMeeting,
 } from "../services/enterprise/enterpriseMeetingSync.service.js";
 
 const shareMeetingTemplate = (
@@ -865,8 +866,11 @@ export const endMeeting = async (req, res) => {
 
     await meeting.save();
 
-    const enterpriseEndSync = meeting.participants.every((p) => p.end === true)
-      ? markEnterpriseMeetingEnded(meeting)
+    const allParticipantsEnded = meeting.participants.every((p) => p.end === true);
+    const enterpriseEndSync = allParticipantsEnded
+      ? markEnterpriseMeetingEnded(meeting).then(() =>
+          syncEnterpriseTranscriptsForMeeting(meeting),
+        )
       : syncEnterpriseMeetingFromMeeting(meeting, "live");
     enterpriseEndSync.catch((error) =>
       console.error("Enterprise meeting end sync failed:", error.message),

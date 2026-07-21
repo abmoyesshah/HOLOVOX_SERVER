@@ -26,6 +26,12 @@ const UserFlagSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    enterpriseTranscriptId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MeetingTranscript",
+      default: null,
+      index: true,
+    },
     flagWordId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "FlagWord",

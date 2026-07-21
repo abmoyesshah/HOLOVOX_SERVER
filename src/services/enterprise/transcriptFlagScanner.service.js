@@ -83,6 +83,7 @@ export const scanTranscriptForFlags = async ({
         meetingId,
         enterpriseMeetingId: enterpriseMeetingId || null,
         transcriptId: transcript._id,
+        enterpriseTranscriptId: transcript._id,
         flagWordId: flagWord._id,
         flaggedMemberId: speakerMemberId || participantMemberId || null,
         speakerUserId: speakerUserId || null,
@@ -90,13 +91,14 @@ export const scanTranscriptForFlags = async ({
         speakerRole,
         managerId: participant?.parentId || null,
         quote: quoteAround(text, match.index, match[0].length),
-        matchedWord: flagWord.word,
+        matchedWord: match[0],
         severity: flagWord.severity,
         category: flagWord.category,
         segment: {
           ...(segment || {}),
           matchIndex: match.index,
           matchLength: match[0].length,
+          transcriptCreatedAt: transcript.createdAt,
         },
         occurredAt: new Date(),
       });

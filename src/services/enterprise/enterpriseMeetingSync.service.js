@@ -21,6 +21,8 @@ const uniqueObjectIds = (ids) => {
   });
 };
 
+const ENTERPRISE_MEETING_ROLES = ["owner", "manager", "rep"];
+
 const normalizeEnterpriseMemberRole = (role) => (role === "manager" ? "manager" : "rep");
 
 const sameId = (left, right) => String(left || "") === String(right || "");
@@ -29,9 +31,9 @@ const findEnterpriseMeetingByRoomId = async (roomId) => {
   const enterpriseMeeting = await EnterpriseMeeting.findOne({ meetingId: roomId }).lean();
   if (enterpriseMeeting) return enterpriseMeeting;
 
-  // Compatibility for any rows created while the collection name was singular.
+  // Compatibility for rows created before the collection was standardized.
   return EnterpriseMeeting.collection.conn
-    .collection("enterprisemeeting")
+    .collection("enterprisemeetings")
     .findOne({ meetingId: roomId });
 };
 
@@ -95,9 +97,11 @@ export const syncEnterpriseMeetingFromMeeting = async (meetingInput, statusOverr
   ]);
   const resolvedParticipants = (
     await Promise.all(participantIds.map((id) => resolveEnterpriseParticipant(id)))
-  ).filter(Boolean);
+  ).filter((participant) => participant && ENTERPRISE_MEETING_ROLES.includes(participant.role));
 
-  const primaryEnterpriseParticipant = resolvedParticipants[0];
+  const primaryEnterpriseParticipant = resolvedParticipants.find(
+    (participant) => participant.organizationId,
+  );
   if (!primaryEnterpriseParticipant?.organizationId) return null;
 
   const organizationId = primaryEnterpriseParticipant.organizationId;
@@ -116,6 +120,14 @@ export const syncEnterpriseMeetingFromMeeting = async (meetingInput, statusOverr
         .select("_id")
         .lean()
     : [];
+
+  const enterpriseParticipantMemberIds = resolvedParticipants
+    .filter(
+      (participant) =>
+        participant.memberId &&
+        String(participant.organizationId) === String(organizationId),
+    )
+    .map((participant) => participant.memberId);
 
   const allEnded =
     Array.isArray(meetingInput.participants) &&
@@ -145,6 +157,7 @@ export const syncEnterpriseMeetingFromMeeting = async (meetingInput, statusOverr
         status,
         participantMemberIds: uniqueObjectIds([
           hostIdentity?.memberId,
+          ...enterpriseParticipantMemberIds,
           ...participantMembers.map((member) => member._id),
         ]),
         endedAt: status === "ended" ? new Date() : null,
