@@ -39,25 +39,47 @@ export const scanTranscriptForFlags = async ({
   speakerRole,
   segment,
 }) => {
+  let transcript = null;
+
   if (normalTranscriptId) {
-    const existingTranscript = await MeetingTranscript.findOne({ normalTranscriptId });
-    if (existingTranscript) return { transcript: existingTranscript, flags: [] };
+    transcript = await MeetingTranscript.findOne({ normalTranscriptId });
+    if (transcript) {
+      const shouldEnrichSpeaker =
+        ["manager", "rep"].includes(speakerRole) &&
+        !["manager", "rep"].includes(transcript.speakerRole);
+
+      if (!shouldEnrichSpeaker) return { transcript, flags: [] };
+
+      transcript.enterpriseMeetingId =
+        transcript.enterpriseMeetingId || enterpriseMeetingId || null;
+      transcript.participantMemberId =
+        transcript.participantMemberId || participantMemberId || null;
+      transcript.hostMemberId = transcript.hostMemberId || hostMemberId || null;
+      transcript.speakerUserId = transcript.speakerUserId || speakerUserId || null;
+      transcript.speakerMemberId =
+        transcript.speakerMemberId || speakerMemberId || participantMemberId || null;
+      transcript.speakerRole = speakerRole;
+      transcript.segment = transcript.segment || segment || null;
+      await transcript.save();
+    }
   }
 
-  const transcript = await MeetingTranscript.create({
-    organizationId,
-    meetingId,
-    enterpriseMeetingId: enterpriseMeetingId || null,
-    normalTranscriptId: normalTranscriptId || null,
-    hostMemberId: hostMemberId || null,
-    participantMemberId: participantMemberId || null,
-    participantName: participantName || "",
-    speakerUserId: speakerUserId || null,
-    speakerMemberId: speakerMemberId || participantMemberId || null,
-    speakerRole: speakerRole || null,
-    text,
-    segment: segment || null,
-  });
+  if (!transcript) {
+    transcript = await MeetingTranscript.create({
+      organizationId,
+      meetingId,
+      enterpriseMeetingId: enterpriseMeetingId || null,
+      normalTranscriptId: normalTranscriptId || null,
+      hostMemberId: hostMemberId || null,
+      participantMemberId: participantMemberId || null,
+      participantName: participantName || "",
+      speakerUserId: speakerUserId || null,
+      speakerMemberId: speakerMemberId || participantMemberId || null,
+      speakerRole: speakerRole || null,
+      text,
+      segment: segment || null,
+    });
+  }
 
   if (!["manager", "rep"].includes(speakerRole)) {
     transcript.scannedAt = new Date();

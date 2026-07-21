@@ -187,7 +187,20 @@ export const syncEnterpriseTranscript = async ({
   let meeting = null;
   if (!enterpriseMeeting) {
     meeting = await MeetingModel.findOne({ meetingId: roomId }).lean();
-    enterpriseMeeting = await syncEnterpriseMeetingFromMeeting(meeting);
+    const meetingWithTranscriptSpeaker = meeting
+      ? {
+          ...meeting,
+          participants: [
+            ...(meeting.participants || []),
+            {
+              userId: participantId,
+              name: participantName || "",
+              role: isObjectId(participantId) ? "participant" : "guest",
+            },
+          ],
+        }
+      : null;
+    enterpriseMeeting = await syncEnterpriseMeetingFromMeeting(meetingWithTranscriptSpeaker);
   }
   if (!enterpriseMeeting?.organizationId) return null;
 
@@ -248,6 +261,30 @@ export const syncEnterpriseTranscriptsForMeeting = async (meetingInput) => {
   if (!meetingId) return { transcriptCount: 0, syncedCount: 0 };
 
   const transcripts = await Transcript.find({ roomId: meetingId }).sort({ createdAt: 1 }).lean();
+  const transcriptParticipants = transcripts
+    .filter((transcript) => isObjectId(transcript.participantId))
+    .map((transcript) => ({
+      userId: transcript.participantId,
+      name: transcript.participantName || "",
+      role: "participant",
+    }));
+
+  if (transcriptParticipants.length) {
+    await syncEnterpriseMeetingFromMeeting(
+      {
+        ...meetingInput.toObject?.() || meetingInput,
+        participants: [
+          ...(meetingInput.participants || []),
+          ...transcriptParticipants,
+        ],
+      },
+      meetingInput.participants?.length &&
+        meetingInput.participants.every((participant) => participant.end === true)
+        ? "ended"
+        : null,
+    );
+  }
+
   let syncedCount = 0;
 
   for (const transcript of transcripts) {
