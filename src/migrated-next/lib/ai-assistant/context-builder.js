@@ -1,22 +1,15 @@
 // lib/ai-assistant/context-builder.js
 
 import HoloAssistQuestionnaire from "../../app/models/HoloAssistQuestionnaire.model.js";
-import AssistantInfo from "../../app/models/AssistantInfo.model.js";
 import LiveAssist from "../../app/models/LiveAssist.model.js";
 import BrainChunk from "../../app/models/BrainChunk.model.js";
-import BrainFile from "../../app/models/BrainFile.model.js";
 import AssistSessionMemory from "../../app/models/AssistSessionMemory.model.js";
 import { tokenize } from "./text-utils.js";
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.CLOUDAPI,
-});
 
 const BRAIN_TOP_K = 4;
-const BRAIN_CANDIDATE_LIMIT = 500; // Increased for better coverage
-const BRAIN_MIN_RELEVANCE = 0.3; // Increased threshold
-const BRAIN_MAX_TEXT_CHARS = 1000; // Increased for more context
+const BRAIN_CANDIDATE_LIMIT = 500;
+const BRAIN_MIN_RELEVANCE = 0.3;
+const BRAIN_MAX_TEXT_CHARS = 1000;
 
 // =============================================
 // 1. TOPIC DETECTION & EXTRACTION
@@ -28,6 +21,11 @@ const BRAIN_MAX_TEXT_CHARS = 1000; // Increased for more context
  */
 async function detectTopicsFromText(text) {
   try {
+    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+    const anthropic = new Anthropic({
+      apiKey: process.env.CLOUDAPI,
+    });
+
     const response = await anthropic.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 100,
@@ -61,7 +59,6 @@ async function detectTopicsFromText(text) {
  */
 function extractKeywordsFallback(text) {
   const tokens = tokenize(text);
-  // Remove common stopwords and keep only meaningful terms
   const stopwords = new Set(["the", "a", "an", "this", "that", "these", "those", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "must", "for", "and", "nor", "but", "or", "yet", "so", "as", "at", "by", "for", "from", "in", "into", "of", "on", "onto", "to", "with", "without"]);
   
   const keywordCounts = {};
@@ -71,7 +68,6 @@ function extractKeywordsFallback(text) {
     }
   });
 
-  // Return top 5 keywords
   return Object.entries(keywordCounts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
@@ -93,13 +89,11 @@ function scoreChunkByTopic(chunk, topics, queryTokens) {
   const chunkText = `${chunk.text || ""} ${(chunk.keywords || []).join(" ")}`.toLowerCase();
   const chunkWords = new Set(chunkText.split(/\s+/));
 
-  // Score based on topic overlap
   let topicScore = 0;
   for (const topic of topics) {
     if (chunkText.includes(topic) || chunkText.includes(topic.replace(/\s+/g, " "))) {
-      topicScore += 1.5; // Higher weight for exact topic match
+      topicScore += 1.5;
     }
-    // Check if any word in topic exists in chunk
     const topicWords = topic.split(/\s+/);
     for (const word of topicWords) {
       if (word.length > 3 && chunkWords.has(word)) {
@@ -108,14 +102,13 @@ function scoreChunkByTopic(chunk, topics, queryTokens) {
     }
   }
 
-  // Combine with token overlap
   const tokenScore = scoreChunkByTokens(chunk, queryTokens);
   
   return (topicScore / Math.max(1, topics.length * 2)) + (tokenScore * 0.5);
 }
 
 /**
- * Original token-based scoring (keeping as fallback)
+ * Original token-based scoring
  */
 function scoreChunkByTokens(chunk, queryTokens) {
   if (queryTokens.length === 0) return 0;
@@ -158,10 +151,8 @@ async function retrieveBrainContext(userId, queryText, topK = BRAIN_TOP_K) {
   // Step 3: Score each chunk based on topic relevance
   const scoredChunks = allChunks
     .map((chunk) => {
-      // Get chunk's topic from keywords or extract from text
-      const chunkTopics = chunk.keywords || [];
+      const chunkTopics = chunk.topic_keywords || chunk.keywords || [];
       
-      // If chunk has explicit topic keywords, use them for matching
       const hasTopicMatch = detectedTopics.some(topic => {
         return chunkTopics.some(keyword => 
           keyword.toLowerCase().includes(topic) || 
@@ -169,7 +160,6 @@ async function retrieveBrainContext(userId, queryText, topK = BRAIN_TOP_K) {
         );
       });
 
-      // Score the chunk
       const score = hasTopicMatch 
         ? 0.8 + scoreChunkByTopic(chunk, detectedTopics, queryTokens) * 0.2
         : scoreChunkByTopic(chunk, detectedTopics, queryTokens);
@@ -185,7 +175,6 @@ async function retrieveBrainContext(userId, queryText, topK = BRAIN_TOP_K) {
     .sort((a, b) => b._score - a._score)
     .slice(0, topK);
 
-  // If no chunks found with good score, try fallback with lower threshold
   if (scoredChunks.length === 0) {
     console.log("No highly relevant chunks found, trying fallback...");
     const fallbackChunks = allChunks
@@ -194,9 +183,9 @@ async function retrieveBrainContext(userId, queryText, topK = BRAIN_TOP_K) {
         _score: scoreChunkByTokens(chunk, queryTokens),
         _topicMatch: false,
       }))
-      .filter((chunk) => chunk._score >= 0.15) // Lower threshold for fallback
+      .filter((chunk) => chunk._score >= 0.15)
       .sort((a, b) => b._score - a._score)
-      .slice(0, Math.min(topK, 2)); // Fewer chunks for fallback
+      .slice(0, Math.min(topK, 2));
 
     if (fallbackChunks.length > 0) {
       return fallbackChunks.map((chunk) => ({
@@ -206,6 +195,8 @@ async function retrieveBrainContext(userId, queryText, topK = BRAIN_TOP_K) {
         score: chunk._score,
         topicMatch: chunk._topicMatch || false,
         chunkIndex: chunk.chunk_index,
+        topic: chunk.topic || "general",
+        topicHeader: chunk.topic_header || "",
       }));
     }
   }
@@ -218,6 +209,8 @@ async function retrieveBrainContext(userId, queryText, topK = BRAIN_TOP_K) {
     topicMatch: chunk._topicMatch || false,
     chunkIndex: chunk.chunk_index,
     detectedTopics: chunk._detectedTopics,
+    topic: chunk.topic || "general",
+    topicHeader: chunk.topic_header || "",
   }));
 }
 
@@ -232,7 +225,6 @@ function getPriorityPolicy() {
       "2_brain_files_relevant",       // High: Topic-specific knowledge
       "3_session_memory",             // Medium: Conversation continuity
       "4_recent_transcripts",         // Low: Meeting context
-      "5_assistant_persona",          // Lowest: Delivery style
     ],
     brainMinRelevance: BRAIN_MIN_RELEVANCE,
   };
@@ -264,29 +256,13 @@ function formatQuestionnaire(profile) {
     .join("\n");
 }
 
-function formatAssistantInfo(info) {
-  if (!info) return "";
-
-  return [
-    `=== ASSISTANT PERSONA (DELIVERY STYLE) ===`,
-    `Natural Style: ${info.naturalStyle || ""}`,
-    `Current Goal: ${info.currentGoal || ""}`,
-    `Biggest Barrier: ${info.biggestBarrier || ""}`,
-    `Preferred Tone: ${info.preferredTone || ""}`,
-    `Current Need: ${info.currentNeed || ""}`,
-    `Domain Answers: ${(info.domainAnswers || []).join(" | ")}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
 function formatBrainChunks(chunks) {
   if (!chunks || chunks.length === 0) return "No relevant brain files found";
 
   return chunks
     .map(
       (item, index) => 
-        `[${index + 1}] TOPIC: ${item.detectedTopics ? item.detectedTopics.join(", ") : "General"}\n` +
+        `[${index + 1}] TOPIC: ${item.topic || item.detectedTopics?.join(", ") || "General"}\n` +
         `    FILE: ${item.fileName}\n` +
         `    RELEVANCE: ${(item.score * 100).toFixed(1)}%\n` +
         `    CONTENT: ${item.text}`
@@ -327,13 +303,11 @@ export async function buildAssistContext({
       roomId,
       sessionId,
       profile: null,
-      assistantInfo: null,
       retrievedChunks: [],
       recentSummaries: [],
       recentMemory: [],
       priorityPolicy: getPriorityPolicy(),
       profileText: "",
-      assistantInfoText: "",
       brainChunksText: "",
       memoryText: "",
       transcriptsText: "",
@@ -344,13 +318,11 @@ export async function buildAssistContext({
   // Fetch all context data in parallel
   const [
     profile,
-    assistantInfo,
     recentTranscripts,
     recentMemory,
     retrievedChunks,
   ] = await Promise.all([
     HoloAssistQuestionnaire.findOne({ user_id: userId }).lean(),
-    AssistantInfo.findOne({ userId }).lean(),
     userId && roomId
       ? LiveAssist.find({ userId, roomId })
           .sort({ createdAt: -1 })
@@ -372,7 +344,6 @@ export async function buildAssistContext({
     roomId,
     sessionId,
     profile,
-    assistantInfo,
     retrievedChunks,
     recentTranscripts,
     recentMemory,
@@ -381,13 +352,11 @@ export async function buildAssistContext({
     
     // Formatted texts for prompt building
     profileText: formatQuestionnaire(profile),
-    assistantInfoText: formatAssistantInfo(assistantInfo),
     brainChunksText: formatBrainChunks(retrievedChunks),
     memoryText: formatSessionMemory(recentMemory),
     transcriptsText: formatTranscripts(recentTranscripts),
   };
 
-  // Log for debugging
   console.log(`Context built with ${retrievedChunks.length} brain chunks, ${recentMemory.length} memory entries`);
 
   return context;
@@ -420,15 +389,11 @@ ${context.memoryText || "No session history"}
 --- PRIORITY 4: RECENT MEETING CONTEXT ---
 ${context.transcriptsText || "No meeting context"}
 
---- PRIORITY 5: ASSISTANT PERSONA (Style Only) ---
-${context.assistantInfoText || "Use professional tone"}
-
 POLICY NOTES:
 - Always prioritize user profile for tone, goals, and communication style
 - Use brain knowledge as primary source for content and expertise
 - Session memory only for continuity (avoid repeating previous suggestions)
 - Meeting transcripts for understanding current conversation flow
-- Assistant persona for delivery style ONLY (not content)
 - If knowledge conflicts, user profile and brain knowledge take precedence
 
 CURRENT QUERY: "${context.queryText || ""}"
@@ -436,7 +401,7 @@ CURRENT QUERY: "${context.queryText || ""}"
 }
 
 // =============================================
-// 8. SAVE ASSIST MEMORY (unchanged but enhanced)
+// 8. SAVE ASSIST MEMORY
 // =============================================
 
 export async function saveAssistMemory({
