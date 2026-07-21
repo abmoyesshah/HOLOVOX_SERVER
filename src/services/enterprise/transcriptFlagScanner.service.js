@@ -5,6 +5,19 @@ import EnterpriseProfile from "../../migrated-next/app/models/EnterpriseProfile.
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+const buildWordRegex = (value) => {
+  const tokens = String(value || "")
+    .toLowerCase()
+    .replace(/[^\w\s'-]/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(escapeRegExp);
+
+  if (!tokens.length) return null;
+  return new RegExp(`\\b${tokens.join("[\\s\\W_]+")}\\b`, "i");
+};
+
 const quoteAround = (text, index, length) => {
   const start = Math.max(0, index - 60);
   const end = Math.min(text.length, index + length + 60);
@@ -35,7 +48,8 @@ export const scanTranscriptForFlags = async ({
 
   const created = [];
   for (const flagWord of flagWords) {
-    const regex = new RegExp(`\\b${escapeRegExp(flagWord.normalizedWord)}\\b`, "i");
+    const regex = buildWordRegex(flagWord.normalizedWord || flagWord.word);
+    if (!regex) continue;
     const match = regex.exec(text);
     if (!match) continue;
 
