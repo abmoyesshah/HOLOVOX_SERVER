@@ -188,11 +188,7 @@ function buildTranscriptEmailHtml({ email, transcript, meetingTitle, meetingId }
                 </div>
               </div>
 
-              // <div style="border-top:1px solid #eaedf2;padding-top:20px;text-align:center;">
-              //   <a href="https://holovox.io" style="display:inline-block;background:#e51a54;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
-              //     Go to Holovox
-              //   </a>
-              // </div>
+            
 
             </td>
           </tr>
