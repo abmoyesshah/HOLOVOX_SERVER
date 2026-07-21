@@ -1,6 +1,5 @@
 // app/api/ai-assistant/transcribe-live/route.js
 import { NextResponse } from "../../../../utils/next-response.js";
-// import { createClient } from "@deepgram/sdk";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import connectDB from "../../../../lib/db.js";
@@ -19,6 +18,22 @@ export const runtime = "nodejs";
 const anthropic = new Anthropic({
   apiKey: process.env.CLOUDAPI,
 });
+
+// Initialize OpenAI with proper error handling
+let openai;
+try {
+  if (!process.env.OPENAI_API_KEY) {
+    console.error('❌ OPENAI_API_KEY is not set in environment variables');
+    throw new Error('OPENAI_API_KEY is required for transcription');
+  }
+  
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY.trim(),
+  });
+  console.log('✅ OpenAI client initialized successfully');
+} catch (error) {
+  console.error('❌ Failed to initialize OpenAI:', error.message);
+}
 
 function getSummaryType(summary) {
   const lowerSummary = summary.toLowerCase();
@@ -46,8 +61,21 @@ export async function POST(req) {
   try {
     await connectDB();
 
+    // Check if OpenAI is initialized
+    if (!openai) {
+      console.error('❌ OpenAI client not initialized');
+      return NextResponse.json(
+        { error: "OpenAI client not initialized. Please check OPENAI_API_KEY environment variable." },
+        { status: 500 }
+      );
+    }
+
     const formData = await req.formData();
 
+    // ✅ FIXED: Safely log FormData without using entries()
+    console.log('📥 [BACKEND] Received FormData:');
+    
+    // Get all fields individually
     const audio = formData.get("audio");
     const roomId = formData.get("roomId");
     const participantId = formData.get("participantId");
@@ -55,14 +83,40 @@ export async function POST(req) {
     const sessionIdInput = formData.get("sessionId");
     const candidateUserId = formData.get("userId");
 
-    const userId = resolveRequestUserId(
+    // Log each field
+    console.log(`  audio: ${audio ? `File(${audio.size} bytes, ${audio.type})` : 'null'}`);
+    console.log(`  roomId: ${roomId || 'null'}`);
+    console.log(`  participantId: ${participantId || 'null'}`);
+    console.log(`  participantName: ${participantName || 'null'}`);
+    console.log(`  sessionIdInput: ${sessionIdInput || 'null'}`);
+    console.log(`  candidateUserId: ${candidateUserId || 'null'}`);
+
+    // Resolve userId with fallbacks
+    let userId = resolveRequestUserId(
       req,
       typeof candidateUserId === "string" ? candidateUserId : "",
     );
+    
+    // ✅ If userId is empty, use participantId
+    if (!userId && participantId) {
+      console.log('⚠️ [BACKEND] userId empty, using participantId:', participantId);
+      userId = participantId;
+    }
+    
+    // ✅ If still empty, use a default
+    if (!userId) {
+      console.log('⚠️ [BACKEND] No userId found, using default');
+      userId = 'anonymous_user';
+    }
+    
+    console.log(`✅ [BACKEND] Final userId: ${userId}`);
+
     const sessionId =
       typeof sessionIdInput === "string" && sessionIdInput.trim()
         ? sessionIdInput.trim()
         : `${typeof roomId === "string" && roomId.trim() ? roomId.trim() : "room"}:${userId || participantId || "anon"}`;
+
+    console.log(`📋 [BACKEND] Session ID: ${sessionId}`);
 
     if (!audio) {
       return NextResponse.json({ error: "No audio file" }, { status: 400 });
@@ -73,65 +127,39 @@ export async function POST(req) {
 
     const buffer = Buffer.from(await audio.arrayBuffer());
 
-    // const deepgram = createClient(process.env.DEEPGRAM_API);
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    // =============================================
+    // TRANSCRIBE WITH OPENAI
+    // =============================================
 
-    // const { result } = await deepgram.listen.prerecorded.transcribeFile(
-    //   buffer,
-    //   {
-    //     model: "nova-2",
-    //     smart_format: true,
-    //     language: "en",
-    //     ...(detectedMimeType ? { mimetype: detectedMimeType } : {}),
-    //   },
-    // );
+    const audioFile = new File(
+      [buffer],
+      audio.name || "audio.webm",
+      {
+        type: detectedMimeType || "audio/webm",
+      }
+    );
 
-    // const deepgramChannels = Array.isArray(result?.results?.channels)
-    //   ? result.results.channels
-    //   : [];
-
-    // const deepgramAlternatives = Array.isArray(deepgramChannels[0]?.alternatives)
-    //   ? deepgramChannels[0].alternatives
-    //   : [];
-
-    // const primaryAlternative = deepgramAlternatives[0] || null;
-
-    // const deepgramDebug = {
-    //   duration: result?.metadata?.duration ?? null,
-    //   channels: deepgramChannels.length,
-    //   alternativesCount: deepgramAlternatives.length,
-    //   confidence:
-    //     typeof primaryAlternative?.confidence === "number"
-    //       ? primaryAlternative.confidence
-    //       : null,
-    //   wordsCount: Array.isArray(primaryAlternative?.words)
-    //     ? primaryAlternative.words.length
-    //     : 0,
-    // };
-
-    // const text =
-    //   result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
-
-
-const audioFile = new File(
-  [buffer],
-  audio.name || "audio.webm",
-  {
-    type: detectedMimeType || "audio/webm",
-  }
-);
-
-const transcription = await openai.audio.transcriptions.create({
-  file: audioFile,
-  model: "gpt-4o-transcribe", // or "whisper-1"
-  language: "en",
-});
-console.log("sending audio to Openapi...");
-
-const text = transcription.text || "";
-
+    console.log('🎤 [BACKEND] Sending audio to OpenAI for transcription...');
+    console.log(`  Audio size: ${buffer.length} bytes`);
+    console.log(`  Audio type: ${detectedMimeType || 'audio/webm'}`);
+    
+    let text = "";
+    try {
+      const transcription = await openai.audio.transcriptions.create({
+        file: audioFile,
+        model: "gpt-4o-transcribe",
+        language: "en",
+      });
+      
+      text = transcription.text || "";
+      console.log(`✅ [BACKEND] Transcription successful: "${text.slice(0, 100)}..."`);
+    } catch (transcriptionError) {
+      console.error('❌ [BACKEND] Transcription failed:', transcriptionError.message);
+      return NextResponse.json(
+        { error: `Transcription failed: ${transcriptionError.message}` },
+        { status: 500 }
+      );
+    }
 
     // Save transcript
     let saved = null;
@@ -163,67 +191,81 @@ const text = transcription.text || "";
         audioBytes: buffer.length,
         mimeType: detectedMimeType,
         transcription: {
-  model: "gpt-4o-transcribe",
-},
-        // deepgram: deepgramDebug,
+          model: "gpt-4o-transcribe",
+        },
       });
     }
 
-   const assistContext = await buildAssistContext({
-  userId,
-  roomId: typeof roomId === "string" ? roomId : "",
-  sessionId,
-  queryText: text,
-});
-const contextPrompt = buildContextPrompt(assistContext);
+    // =============================================
+    // BUILD CONTEXT
+    // =============================================
 
-    // =====================================
-    // HOLO ASSIST - Generate Summary
-    // =====================================
-
-    const claudeResponse = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 140,
-
-      system: `
-You are Holo Assist.
-
-You are a real-time AI meeting assistant.
-
-    Use this context to guide your response:
-    ${contextPrompt}
-
-Your job is to assist the host during the conversation.
-
-Rules:
-    - Maximum 20 words.
-- Plain text only.
-- No markdown.
-- No bullet points.
-- Never repeat the transcript.
-    - Never explain your reasoning.
-    - Output the single most useful coaching suggestion or response.
-    - Priority enforcement:
-      1) Start from questionnaire/profile to shape tone, goals, and coaching style.
-      2) Use assistant persona for delivery style only.
-      3) Use recent memory/summaries only to maintain continuity.
-      4) Use brain evidence only when directly relevant to current input.
-      5) Let the current transcript chunk decide the immediate coaching point.
-    `,
-
-      messages: [
-        {
-          role: "user",
-          content: text,
-        },
-      ],
+    console.log(`🔨 [BACKEND] Building context for userId: ${userId}`);
+    
+    const assistContext = await buildAssistContext({
+      userId: userId,
+      roomId: typeof roomId === "string" ? roomId : "",
+      sessionId,
+      queryText: text,
     });
+    
+    const contextPrompt = buildContextPrompt(assistContext);
+    // const contextPrompt = 'BAWDICSOFT   COMPANY & SERVICES OVERVIEW bawdicsoft.com Company Overview Bawdicsoft is a software development agency founded in 2018, based in Karachi, Pakistan, with a team of approximately 22 employees. The company also operates as a registered Wyoming LLC to serve US-based clients directly. Core Services Web Application Development Custom web applications built end to end, from architecture through deployment. Blockchain & Web3 Solutions Development of blockchain-based platforms and Web3 applications. AI Services AI integration and product development for clients building AI-powered platforms. Track Record 250+ projects delivered across 15+ countries since founding. Certifications ISO 27001 certified.'
+    // =============================================
+    // GENERATE SUMMARY WITH CLAUDE
+    // =============================================
 
-    const summary = claudeResponse.content?.[0]?.text || "";
+    console.log('🤖 [BACKEND] Generating summary with Claude...');
+    
+    let summary = "";
+    try {
+      const claudeResponse = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 140,
 
-    // =====================================
-    // SAVE SUMMARY TO DATABASE
-    // =====================================
+        system: `
+            You are Holo Assist.
+
+            You are a real-time AI meeting assistant.
+
+                Use this context to guide your response:
+                ${contextPrompt}
+
+            Your job is to assist the host during the conversation.
+
+            Rules:
+                - Maximum 20 words.
+            - Plain text only.
+            - No markdown.
+            - No bullet points.
+            - Never repeat the transcript.
+                - Never explain your reasoning.
+                - Output the single most useful coaching suggestion or response.
+                - Priority enforcement:
+                  1) Start from questionnaire/profile to shape tone, goals, and coaching style.
+                  2) Use recent memory/summaries only to maintain continuity.
+                  3) Use brain evidence only when directly relevant to current input.
+                  4) Let the current transcript chunk decide the immediate coaching point.
+                `,
+
+                    messages: [
+                      {
+                        role: "user",
+                        content: text,
+                      },
+                    ],
+                  });
+
+      summary = claudeResponse.content?.[0]?.text || "";
+      console.log(`✅ [BACKEND] Summary generated: "${summary.slice(0, 50)}..."`);
+    } catch (claudeError) {
+      console.error('❌ [BACKEND] Claude summary generation failed:', claudeError.message);
+      // Continue without summary
+    }
+
+    // =============================================
+    // SAVE TO DATABASE
+    // =============================================
 
     let savedSummary = null;
     let summaryError = null;
@@ -245,14 +287,18 @@ Rules:
           wordCount: summary.split(/\s+/).filter(Boolean).length,
           createdAt: new Date(),
         });
+        console.log(`✅ [BACKEND] Summary saved (ID: ${savedSummary._id})`);
       } catch (err) {
         summaryError = err.message;
-        console.error("❌ Error saving summary:", err);
+        console.error("❌ [BACKEND] Error saving summary:", err);
       }
     }
 
+    // Save memory with proper userId
+    console.log(`💾 [BACKEND] Saving memory for userId: ${userId}`);
+    
     await saveAssistMemory({
-      userId,
+      userId: userId,
       roomId: typeof roomId === "string" ? roomId : "",
       sessionId,
       role: "user",
@@ -260,17 +306,17 @@ Rules:
     });
 
     await saveAssistMemory({
-      userId,
+      userId: userId,
       roomId: typeof roomId === "string" ? roomId : "",
       sessionId,
       role: "assistant",
       text: summary,
-      sourceRefs: assistContext.retrievedChunks.map((item) => item.fileName),
+      sourceRefs: assistContext.retrievedChunks?.map((item) => item.fileName) || [],
     });
 
-    // =====================================
+    // =============================================
     // RETURN RESPONSE
-    // =====================================
+    // =============================================
 
     return NextResponse.json({
       success: true,
@@ -292,10 +338,10 @@ Rules:
         : null,
       sessionId,
       audioBytes: buffer.length,
-      retrieved: assistContext.retrievedChunks.map((item) => ({
+      retrieved: assistContext.retrievedChunks?.map((item) => ({
         fileName: item.fileName,
         score: item.score,
-      })),
+      })) || [],
       savedSummary: savedSummary
         ? {
             id: savedSummary._id,
@@ -315,7 +361,8 @@ Rules:
       );
     }
 
-    console.error("TRANSCRIBE ERROR:", err);
+    console.error("❌ [BACKEND] TRANSCRIBE ERROR:", err);
+    console.error(err.stack);
 
     return NextResponse.json(
       {
@@ -329,7 +376,10 @@ Rules:
   }
 }
 
-// app/api/ai-assistant/transcribe-live/route.js
+// =============================================
+// GET HANDLER
+// =============================================
+
 export async function GET(request) {
   try {
     await connectDB();
@@ -359,7 +409,6 @@ export async function GET(request) {
       .limit(limit)
       .lean();
 
-    // Format for frontend
     const formattedSummaries = summaries.map((s) => ({
       id: s._id.toString(),
       text: s.summary,
@@ -385,7 +434,7 @@ export async function GET(request) {
       );
     }
 
-    console.error("❌ GET error:", error);
+    console.error("❌ [BACKEND] GET error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

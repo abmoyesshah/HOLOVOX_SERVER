@@ -15,11 +15,10 @@ const BRAIN_MAX_TEXT_CHARS = 1000;
 // 1. TOPIC DETECTION & EXTRACTION
 // =============================================
 
-/**
- * Detect topics from the transcript text using AI
- * Returns array of topic names/keywords
- */
 async function detectTopicsFromText(text) {
+  console.log('\n🔍 [TOPIC DETECTION] Starting...');
+  console.log(`📝 Query text: "${text.slice(0, 100)}..."`);
+  
   try {
     const Anthropic = (await import('@anthropic-ai/sdk')).default;
     const anthropic = new Anthropic({
@@ -47,16 +46,14 @@ async function detectTopicsFromText(text) {
       .map(t => t.trim().toLowerCase())
       .filter(t => t.length > 0);
     
+    console.log(`✅ [TOPIC DETECTION] Detected topics: ${topics.join(", ")}`);
     return topics.length > 0 ? topics : extractKeywordsFallback(text);
   } catch (error) {
-    console.error("Topic detection failed:", error);
+    console.error("❌ [TOPIC DETECTION] Failed:", error);
     return extractKeywordsFallback(text);
   }
 }
 
-/**
- * Fallback: Extract keywords using tokenization
- */
 function extractKeywordsFallback(text) {
   const tokens = tokenize(text);
   const stopwords = new Set(["the", "a", "an", "this", "that", "these", "those", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "must", "for", "and", "nor", "but", "or", "yet", "so", "as", "at", "by", "for", "from", "in", "into", "of", "on", "onto", "to", "with", "without"]);
@@ -68,19 +65,19 @@ function extractKeywordsFallback(text) {
     }
   });
 
-  return Object.entries(keywordCounts)
+  const keywords = Object.entries(keywordCounts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .map(([word]) => word);
+  
+  console.log(`🔄 [TOPIC DETECTION] Fallback keywords: ${keywords.join(", ")}`);
+  return keywords;
 }
 
 // =============================================
-// 2. IMPROVED CHUNK SCORING
+// 2. CHUNK SCORING
 // =============================================
 
-/**
- * Enhanced scoring: Check if chunk matches detected topics
- */
 function scoreChunkByTopic(chunk, topics, queryTokens) {
   if (!topics || topics.length === 0) {
     return scoreChunkByTokens(chunk, queryTokens);
@@ -103,13 +100,11 @@ function scoreChunkByTopic(chunk, topics, queryTokens) {
   }
 
   const tokenScore = scoreChunkByTokens(chunk, queryTokens);
+  const finalScore = (topicScore / Math.max(1, topics.length * 2)) + (tokenScore * 0.5);
   
-  return (topicScore / Math.max(1, topics.length * 2)) + (tokenScore * 0.5);
+  return Math.min(finalScore, 1.0);
 }
 
-/**
- * Original token-based scoring
- */
 function scoreChunkByTokens(chunk, queryTokens) {
   if (queryTokens.length === 0) return 0;
 
@@ -123,32 +118,51 @@ function scoreChunkByTokens(chunk, queryTokens) {
 }
 
 // =============================================
-// 3. ENHANCED RETRIEVAL
+// 3. RETRIEVAL
 // =============================================
 
-/**
- * Retrieve brain chunks with topic-based relevance
- */
 async function retrieveBrainContext(userId, queryText, topK = BRAIN_TOP_K) {
+  console.log('\n📚 [BRAIN RETRIEVAL] Starting...');
+  console.log(`👤 User ID: ${userId}`);
+  console.log(`🔍 Query: "${queryText.slice(0, 100)}..."`);
+  console.log(`📊 Top K: ${topK}`);
+
   if (!userId || !queryText || queryText.trim().length === 0) {
+    console.log('⚠️ [BRAIN RETRIEVAL] No userId or queryText provided');
     return [];
   }
 
   const queryTokens = tokenize(queryText);
-  
-  // Step 1: Detect topics from the text
-  const detectedTopics = await detectTopicsFromText(queryText);
-  console.log(`Detected topics: ${detectedTopics.join(", ")}`);
+  console.log(`📝 Query tokens: ${queryTokens.join(", ")}`);
 
-  // Step 2: Fetch all chunks for this user
+  const detectedTopics = await detectTopicsFromText(queryText);
+  console.log(`🎯 Detected topics: ${detectedTopics.join(", ")}`);
+
+  // Fetch all chunks for this user
+  console.log(`🔎 Fetching chunks for user: ${userId}...`);
   const allChunks = await BrainChunk.find({ user_id: userId })
     .sort({ updatedAt: -1 })
     .limit(BRAIN_CANDIDATE_LIMIT)
     .lean();
 
-  if (allChunks.length === 0) return [];
+  console.log(`📦 Total chunks found: ${allChunks.length}`);
 
-  // Step 3: Score each chunk based on topic relevance
+  if (allChunks.length === 0) {
+    console.log('⚠️ [BRAIN RETRIEVAL] No chunks found for this user');
+    return [];
+  }
+
+  // Log sample chunks
+  console.log('\n📋 [BRAIN RETRIEVAL] Sample chunks (first 3):');
+  allChunks.slice(0, 3).forEach((chunk, i) => {
+    console.log(`  ${i + 1}. Topic: ${chunk.topic || 'general'}`);
+    console.log(`     Header: ${chunk.topic_header || 'N/A'}`);
+    console.log(`     Keywords: ${(chunk.keywords || []).join(', ')}`);
+    console.log(`     Text preview: ${(chunk.text || '').slice(0, 80)}...`);
+  });
+
+  // Score each chunk
+  console.log('\n📊 [BRAIN RETRIEVAL] Scoring chunks...');
   const scoredChunks = allChunks
     .map((chunk) => {
       const chunkTopics = chunk.topic_keywords || chunk.keywords || [];
@@ -175,8 +189,20 @@ async function retrieveBrainContext(userId, queryText, topK = BRAIN_TOP_K) {
     .sort((a, b) => b._score - a._score)
     .slice(0, topK);
 
+  console.log(`✅ [BRAIN RETRIEVAL] ${scoredChunks.length} chunks scored above threshold (${BRAIN_MIN_RELEVANCE})`);
+
+  // Log scored chunks
+  scoredChunks.forEach((chunk, i) => {
+    console.log(`\n  🏆 Chunk ${i + 1}:`);
+    console.log(`     Topic: ${chunk.topic || 'general'}`);
+    console.log(`     Score: ${(chunk._score * 100).toFixed(1)}%`);
+    console.log(`     Topic Match: ${chunk._topicMatch}`);
+    console.log(`     File: ${chunk.file_name}`);
+    console.log(`     Preview: ${(chunk.text || '').slice(0, 100)}...`);
+  });
+
   if (scoredChunks.length === 0) {
-    console.log("No highly relevant chunks found, trying fallback...");
+    console.log("⚠️ [BRAIN RETRIEVAL] No highly relevant chunks found, trying fallback...");
     const fallbackChunks = allChunks
       .map((chunk) => ({
         ...chunk,
@@ -186,6 +212,8 @@ async function retrieveBrainContext(userId, queryText, topK = BRAIN_TOP_K) {
       .filter((chunk) => chunk._score >= 0.15)
       .sort((a, b) => b._score - a._score)
       .slice(0, Math.min(topK, 2));
+
+    console.log(`🔄 [BRAIN RETRIEVAL] Fallback found ${fallbackChunks.length} chunks`);
 
     if (fallbackChunks.length > 0) {
       return fallbackChunks.map((chunk) => ({
@@ -201,7 +229,7 @@ async function retrieveBrainContext(userId, queryText, topK = BRAIN_TOP_K) {
     }
   }
 
-  return scoredChunks.map((chunk) => ({
+  const result = scoredChunks.map((chunk) => ({
     fileId: chunk.file_id,
     fileName: chunk.file_name,
     text: String(chunk.text || "").slice(0, BRAIN_MAX_TEXT_CHARS),
@@ -212,6 +240,9 @@ async function retrieveBrainContext(userId, queryText, topK = BRAIN_TOP_K) {
     topic: chunk.topic || "general",
     topicHeader: chunk.topic_header || "",
   }));
+
+  console.log(`✅ [BRAIN RETRIEVAL] Returning ${result.length} chunks\n`);
+  return result;
 }
 
 // =============================================
@@ -221,10 +252,10 @@ async function retrieveBrainContext(userId, queryText, topK = BRAIN_TOP_K) {
 function getPriorityPolicy() {
   return {
     order: [
-      "1_questionnaire_profile",      // Highest: Tone, goals, style
-      "2_brain_files_relevant",       // High: Topic-specific knowledge
-      "3_session_memory",             // Medium: Conversation continuity
-      "4_recent_transcripts",         // Low: Meeting context
+      "1_questionnaire_profile",
+      "2_brain_files_relevant",
+      "3_session_memory",
+      "4_recent_transcripts",
     ],
     brainMinRelevance: BRAIN_MIN_RELEVANCE,
   };
@@ -235,7 +266,16 @@ function getPriorityPolicy() {
 // =============================================
 
 function formatQuestionnaire(profile) {
-  if (!profile) return "";
+  if (!profile) {
+    console.log('📋 [QUESTIONNAIRE] No profile found');
+    return "";
+  }
+
+  console.log('📋 [QUESTIONNAIRE] Profile found:', {
+    name: profile.name,
+    role: profile.role,
+    tone: profile.tone
+  });
 
   return [
     `=== USER PROFILE (PRIMARY CONTEXT) ===`,
@@ -257,8 +297,13 @@ function formatQuestionnaire(profile) {
 }
 
 function formatBrainChunks(chunks) {
-  if (!chunks || chunks.length === 0) return "No relevant brain files found";
+  if (!chunks || chunks.length === 0) {
+    console.log('🧠 [BRAIN CHUNKS] No chunks to format');
+    return "No relevant brain files found";
+  }
 
+  console.log(`🧠 [BRAIN CHUNKS] Formatting ${chunks.length} chunks`);
+  
   return chunks
     .map(
       (item, index) => 
@@ -271,16 +316,26 @@ function formatBrainChunks(chunks) {
 }
 
 function formatSessionMemory(memory) {
-  if (!memory || memory.length === 0) return "No recent session memory";
+  if (!memory || memory.length === 0) {
+    console.log('💾 [SESSION MEMORY] No memory found');
+    return "No recent session memory";
+  }
 
+  console.log(`💾 [SESSION MEMORY] Formatting ${memory.length} memory entries`);
+  
   return memory
     .map((item) => `- (${item.role}) ${item.text}`)
     .join("\n");
 }
 
 function formatTranscripts(transcripts) {
-  if (!transcripts || transcripts.length === 0) return "No recent transcripts";
+  if (!transcripts || transcripts.length === 0) {
+    console.log('📝 [TRANSCRIPTS] No transcripts found');
+    return "No recent transcripts";
+  }
 
+  console.log(`📝 [TRANSCRIPTS] Formatting ${transcripts.length} transcripts`);
+  
   return transcripts
     .map((item) => `- (${item.participantName || "Unknown"}) ${item.summary || item.transcriptText || item.text}`)
     .join("\n");
@@ -296,8 +351,16 @@ export async function buildAssistContext({
   sessionId,
   queryText,
 }) {
+  console.log('\n' + '='.repeat(80));
+  console.log('🔨 [CONTEXT BUILDER] Building context...');
+  console.log('='.repeat(80));
+  console.log(`👤 User ID: ${userId}`);
+  console.log(`🏠 Room ID: ${roomId}`);
+  console.log(`📋 Session ID: ${sessionId}`);
+  console.log(`💬 Query: "${queryText?.slice(0, 100)}..."`);
+
   if (!userId) {
-    console.warn("No userId provided for context building");
+    console.warn("⚠️ [CONTEXT BUILDER] No userId provided");
     return {
       userId: null,
       roomId,
@@ -315,6 +378,8 @@ export async function buildAssistContext({
     };
   }
 
+  console.log('\n📊 [CONTEXT BUILDER] Fetching data...');
+
   // Fetch all context data in parallel
   const [
     profile,
@@ -322,20 +387,40 @@ export async function buildAssistContext({
     recentMemory,
     retrievedChunks,
   ] = await Promise.all([
-    HoloAssistQuestionnaire.findOne({ user_id: userId }).lean(),
-    userId && roomId
-      ? LiveAssist.find({ userId, roomId })
-          .sort({ createdAt: -1 })
-          .limit(10)
-          .lean()
-      : [],
-    userId && sessionId
-      ? AssistSessionMemory.find({ user_id: userId, session_id: sessionId })
-          .sort({ createdAt: -1 })
-          .limit(15)
-          .lean()
-      : [],
-    retrieveBrainContext(userId, queryText, BRAIN_TOP_K),
+    (async () => {
+      console.log('  🔍 Fetching profile...');
+      const result = await HoloAssistQuestionnaire.findOne({ user_id: userId }).lean();
+      console.log(`  ✅ Profile ${result ? 'found' : 'not found'}`);
+      return result;
+    })(),
+    (async () => {
+      console.log('  🔍 Fetching transcripts...');
+      const result = userId && roomId
+        ? await LiveAssist.find({ userId, roomId })
+            .sort({ createdAt: -1 })
+            .limit(10)
+            .lean()
+        : [];
+      console.log(`  ✅ Found ${result.length} transcripts`);
+      return result;
+    })(),
+    (async () => {
+      console.log('  🔍 Fetching session memory...');
+      const result = userId && sessionId
+        ? await AssistSessionMemory.find({ user_id: userId, session_id: sessionId })
+            .sort({ createdAt: -1 })
+            .limit(15)
+            .lean()
+        : [];
+      console.log(`  ✅ Found ${result.length} memory entries`);
+      return result;
+    })(),
+    (async () => {
+      console.log('  🔍 Retrieving brain chunks...');
+      const result = await retrieveBrainContext(userId, queryText, BRAIN_TOP_K);
+      console.log(`  ✅ Retrieved ${result.length} chunks`);
+      return result;
+    })(),
   ]);
 
   // Build the context object
@@ -357,7 +442,19 @@ export async function buildAssistContext({
     transcriptsText: formatTranscripts(recentTranscripts),
   };
 
-  console.log(`Context built with ${retrievedChunks.length} brain chunks, ${recentMemory.length} memory entries`);
+  console.log('\n📊 [CONTEXT BUILDER] Context Summary:');
+  console.log(`  ✅ Profile: ${profile ? 'Found' : 'Not found'}`);
+  console.log(`  ✅ Brain Chunks: ${retrievedChunks.length}`);
+  console.log(`  ✅ Session Memory: ${recentMemory.length}`);
+  console.log(`  ✅ Transcripts: ${recentTranscripts.length}`);
+
+  // Log the actual context that will be sent to Claude
+  console.log('\n📝 [CONTEXT BUILDER] Final Context Prompt Preview:');
+  console.log('─'.repeat(80));
+  console.log(buildContextPrompt(context).slice(0, 500) + '...');
+  console.log('─'.repeat(80));
+
+  console.log('='.repeat(80) + '\n');
 
   return context;
 }
@@ -373,7 +470,7 @@ export function buildContextPrompt(context) {
     .map((item, index) => `${index + 1}. ${item}`)
     .join("\n");
 
-  return `
+  const prompt = `
 SYSTEM CONTEXT PRIORITY (Strict Order):
 ${priorityOrder}
 
@@ -398,6 +495,10 @@ POLICY NOTES:
 
 CURRENT QUERY: "${context.queryText || ""}"
 `;
+
+  console.log(`📝 [PROMPT BUILDER] Generated prompt with ${prompt.length} characters`);
+  
+  return prompt;
 }
 
 // =============================================
@@ -412,13 +513,18 @@ export async function saveAssistMemory({
   text,
   sourceRefs = [],
 }) {
+  console.log(`💾 [SAVE MEMORY] Saving ${role} message...`);
+  console.log(`  User: ${userId}`);
+  console.log(`  Session: ${sessionId}`);
+  console.log(`  Text: "${text?.slice(0, 50)}..."`);
+
   if (!userId || !sessionId || !text) {
-    console.warn("Missing required fields for saveAssistMemory");
+    console.warn("⚠️ [SAVE MEMORY] Missing required fields");
     return;
   }
 
   try {
-    await AssistSessionMemory.create({
+    const memory = await AssistSessionMemory.create({
       user_id: userId,
       room_id: roomId || "",
       session_id: sessionId,
@@ -426,13 +532,14 @@ export async function saveAssistMemory({
       text,
       source_refs: sourceRefs,
     });
+    console.log(`✅ [SAVE MEMORY] Saved successfully (ID: ${memory._id})`);
   } catch (error) {
-    console.error("Error saving assist memory:", error);
+    console.error("❌ [SAVE MEMORY] Error saving:", error);
   }
 }
 
 // =============================================
-// 9. EXPORT HELPER FUNCTIONS
+// 9. EXPORTS
 // =============================================
 
 export {
