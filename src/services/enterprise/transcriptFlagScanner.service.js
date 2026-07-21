@@ -12,10 +12,11 @@ const buildWordRegex = (value) => {
     .trim()
     .split(/\s+/)
     .filter(Boolean)
-    .map(escapeRegExp);
+  const matchTokens =
+    tokens.length > 1 && /^\d+$/.test(tokens[0]) ? tokens.slice(1) : tokens;
 
-  if (!tokens.length) return null;
-  return new RegExp(`\\b${tokens.join("[\\s\\W_]+")}\\b`, "i");
+  if (!matchTokens.length) return null;
+  return new RegExp(`\\b${matchTokens.map(escapeRegExp).join("[\\s\\W_]+")}\\b`, "i");
 };
 
 const quoteAround = (text, index, length) => {
@@ -38,20 +39,47 @@ export const scanTranscriptForFlags = async ({
   speakerRole,
   segment,
 }) => {
-  const transcript = await MeetingTranscript.create({
-    organizationId,
-    meetingId,
-    enterpriseMeetingId: enterpriseMeetingId || null,
-    normalTranscriptId: normalTranscriptId || null,
-    hostMemberId: hostMemberId || null,
-    participantMemberId: participantMemberId || null,
-    participantName: participantName || "",
-    speakerUserId: speakerUserId || null,
-    speakerMemberId: speakerMemberId || participantMemberId || null,
-    speakerRole: speakerRole || null,
-    text,
-    segment: segment || null,
-  });
+  let transcript = null;
+
+  if (normalTranscriptId) {
+    transcript = await MeetingTranscript.findOne({ normalTranscriptId });
+    if (transcript) {
+      const shouldEnrichSpeaker =
+        ["manager", "rep"].includes(speakerRole) &&
+        !["manager", "rep"].includes(transcript.speakerRole);
+
+      if (!shouldEnrichSpeaker) return { transcript, flags: [] };
+
+      transcript.enterpriseMeetingId =
+        transcript.enterpriseMeetingId || enterpriseMeetingId || null;
+      transcript.participantMemberId =
+        transcript.participantMemberId || participantMemberId || null;
+      transcript.hostMemberId = transcript.hostMemberId || hostMemberId || null;
+      transcript.speakerUserId = transcript.speakerUserId || speakerUserId || null;
+      transcript.speakerMemberId =
+        transcript.speakerMemberId || speakerMemberId || participantMemberId || null;
+      transcript.speakerRole = speakerRole;
+      transcript.segment = transcript.segment || segment || null;
+      await transcript.save();
+    }
+  }
+
+  if (!transcript) {
+    transcript = await MeetingTranscript.create({
+      organizationId,
+      meetingId,
+      enterpriseMeetingId: enterpriseMeetingId || null,
+      normalTranscriptId: normalTranscriptId || null,
+      hostMemberId: hostMemberId || null,
+      participantMemberId: participantMemberId || null,
+      participantName: participantName || "",
+      speakerUserId: speakerUserId || null,
+      speakerMemberId: speakerMemberId || participantMemberId || null,
+      speakerRole: speakerRole || null,
+      text,
+      segment: segment || null,
+    });
+  }
 
   if (!["manager", "rep"].includes(speakerRole)) {
     transcript.scannedAt = new Date();
@@ -77,6 +105,7 @@ export const scanTranscriptForFlags = async ({
         meetingId,
         enterpriseMeetingId: enterpriseMeetingId || null,
         transcriptId: transcript._id,
+        enterpriseTranscriptId: transcript._id,
         flagWordId: flagWord._id,
         flaggedMemberId: speakerMemberId || participantMemberId || null,
         speakerUserId: speakerUserId || null,
@@ -84,13 +113,14 @@ export const scanTranscriptForFlags = async ({
         speakerRole,
         managerId: participant?.parentId || null,
         quote: quoteAround(text, match.index, match[0].length),
-        matchedWord: flagWord.word,
+        matchedWord: match[0],
         severity: flagWord.severity,
         category: flagWord.category,
         segment: {
           ...(segment || {}),
           matchIndex: match.index,
           matchLength: match[0].length,
+          transcriptCreatedAt: transcript.createdAt,
         },
         occurredAt: new Date(),
       });

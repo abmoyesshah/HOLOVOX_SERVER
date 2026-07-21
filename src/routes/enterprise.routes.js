@@ -3,6 +3,7 @@ import { upload } from "../middlewares/Multer.middleware.js";
 import {
   createEnterpriseUser,
   createFlagWord,
+  deleteFlagWord,
   getBrainTrainingFiles,
   getEnterpriseFlags,
   getEnterpriseMeetingDetail,
@@ -32,6 +33,7 @@ router.post("/enterprise/brain/files", upload.single("file"), asyncRoute(uploadB
 
 router.get("/enterprise/flag-words", asyncRoute(getFlagWords));
 router.post("/enterprise/flag-words", asyncRoute(createFlagWord));
+router.delete("/enterprise/flag-words/:id", asyncRoute(deleteFlagWord));
 
 router.get("/enterprise/flags", asyncRoute(getEnterpriseFlags));
 router.patch("/enterprise/flags/:id", asyncRoute(updateEnterpriseFlag));

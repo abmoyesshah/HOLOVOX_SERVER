@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import MeetingModel from "../../models/Meeting.model.js";
+import Transcript from "../../models/Transcript.model.js";
 import Profile from "../../models/Profile.model.js";
 import EnterpriseProfile from "../../migrated-next/app/models/EnterpriseProfile.model.js";
 import EnterpriseMeeting from "../../models/enterprise/EnterpriseMeeting.model.js";
@@ -20,7 +21,21 @@ const uniqueObjectIds = (ids) => {
   });
 };
 
+const ENTERPRISE_MEETING_ROLES = ["owner", "manager", "rep"];
+
 const normalizeEnterpriseMemberRole = (role) => (role === "manager" ? "manager" : "rep");
+
+const sameId = (left, right) => String(left || "") === String(right || "");
+
+const findEnterpriseMeetingByRoomId = async (roomId) => {
+  const enterpriseMeeting = await EnterpriseMeeting.findOne({ meetingId: roomId }).lean();
+  if (enterpriseMeeting) return enterpriseMeeting;
+
+  // Compatibility for rows created before the collection was standardized.
+  return EnterpriseMeeting.collection.conn
+    .collection("enterprisemeetings")
+    .findOne({ meetingId: roomId });
+};
 
 const resolveEnterpriseParticipant = async (userId) => {
   if (!isObjectId(userId)) return null;
@@ -82,9 +97,11 @@ export const syncEnterpriseMeetingFromMeeting = async (meetingInput, statusOverr
   ]);
   const resolvedParticipants = (
     await Promise.all(participantIds.map((id) => resolveEnterpriseParticipant(id)))
-  ).filter(Boolean);
+  ).filter((participant) => participant && ENTERPRISE_MEETING_ROLES.includes(participant.role));
 
-  const primaryEnterpriseParticipant = resolvedParticipants[0];
+  const primaryEnterpriseParticipant = resolvedParticipants.find(
+    (participant) => participant.organizationId,
+  );
   if (!primaryEnterpriseParticipant?.organizationId) return null;
 
   const organizationId = primaryEnterpriseParticipant.organizationId;
@@ -103,6 +120,14 @@ export const syncEnterpriseMeetingFromMeeting = async (meetingInput, statusOverr
         .select("_id")
         .lean()
     : [];
+
+  const enterpriseParticipantMemberIds = resolvedParticipants
+    .filter(
+      (participant) =>
+        participant.memberId &&
+        String(participant.organizationId) === String(organizationId),
+    )
+    .map((participant) => participant.memberId);
 
   const allEnded =
     Array.isArray(meetingInput.participants) &&
@@ -132,6 +157,7 @@ export const syncEnterpriseMeetingFromMeeting = async (meetingInput, statusOverr
         status,
         participantMemberIds: uniqueObjectIds([
           hostIdentity?.memberId,
+          ...enterpriseParticipantMemberIds,
           ...participantMembers.map((member) => member._id),
         ]),
         endedAt: status === "ended" ? new Date() : null,
@@ -157,11 +183,24 @@ export const syncEnterpriseTranscript = async ({
 }) => {
   if (!roomId || !text || !text.trim()) return null;
 
-  let enterpriseMeeting = await EnterpriseMeeting.findOne({ meetingId: roomId })
-    .lean();
+  let enterpriseMeeting = await findEnterpriseMeetingByRoomId(roomId);
+  let meeting = null;
   if (!enterpriseMeeting) {
-    const meeting = await MeetingModel.findOne({ meetingId: roomId }).lean();
-    enterpriseMeeting = await syncEnterpriseMeetingFromMeeting(meeting);
+    meeting = await MeetingModel.findOne({ meetingId: roomId }).lean();
+    const meetingWithTranscriptSpeaker = meeting
+      ? {
+          ...meeting,
+          participants: [
+            ...(meeting.participants || []),
+            {
+              userId: participantId,
+              name: participantName || "",
+              role: isObjectId(participantId) ? "participant" : "guest",
+            },
+          ],
+        }
+      : null;
+    enterpriseMeeting = await syncEnterpriseMeetingFromMeeting(meetingWithTranscriptSpeaker);
   }
   if (!enterpriseMeeting?.organizationId) return null;
 
@@ -169,8 +208,8 @@ export const syncEnterpriseTranscript = async ({
   let speakerUserId = null;
   let speakerMemberId = null;
   let speakerRole = null;
-  if (isObjectId(participantId)) {
-    const participantIdentity = await resolveEnterpriseParticipant(participantId);
+
+  const applyParticipantIdentity = (participantIdentity) => {
     const sameOrganization =
       participantIdentity?.organizationId &&
       String(participantIdentity.organizationId) === String(enterpriseMeeting.organizationId);
@@ -179,6 +218,25 @@ export const syncEnterpriseTranscript = async ({
       speakerMemberId = participantIdentity.memberId || null;
       speakerUserId = participantIdentity.userId || null;
       speakerRole = participantIdentity.role;
+      return true;
+    }
+    return false;
+  };
+
+  if (isObjectId(participantId)) {
+    applyParticipantIdentity(await resolveEnterpriseParticipant(participantId));
+  }
+
+  if (!speakerRole) {
+    if (!meeting) meeting = await MeetingModel.findOne({ meetingId: roomId }).lean();
+    const normalizedName = String(participantName || "").trim().toLowerCase();
+    const meetingParticipant = (meeting?.participants || []).find((participant) => {
+      if (participantId && sameId(participant.userId, participantId)) return true;
+      return normalizedName && String(participant.name || "").trim().toLowerCase() === normalizedName;
+    });
+
+    if (meetingParticipant?.userId) {
+      applyParticipantIdentity(await resolveEnterpriseParticipant(meetingParticipant.userId));
     }
   }
 
@@ -196,4 +254,49 @@ export const syncEnterpriseTranscript = async ({
     speakerRole,
     segment,
   });
+};
+
+export const syncEnterpriseTranscriptsForMeeting = async (meetingInput) => {
+  const meetingId = meetingInput?.meetingId;
+  if (!meetingId) return { transcriptCount: 0, syncedCount: 0 };
+
+  const transcripts = await Transcript.find({ roomId: meetingId }).sort({ createdAt: 1 }).lean();
+  const transcriptParticipants = transcripts
+    .filter((transcript) => isObjectId(transcript.participantId))
+    .map((transcript) => ({
+      userId: transcript.participantId,
+      name: transcript.participantName || "",
+      role: "participant",
+    }));
+
+  if (transcriptParticipants.length) {
+    await syncEnterpriseMeetingFromMeeting(
+      {
+        ...meetingInput.toObject?.() || meetingInput,
+        participants: [
+          ...(meetingInput.participants || []),
+          ...transcriptParticipants,
+        ],
+      },
+      meetingInput.participants?.length &&
+        meetingInput.participants.every((participant) => participant.end === true)
+        ? "ended"
+        : null,
+    );
+  }
+
+  let syncedCount = 0;
+
+  for (const transcript of transcripts) {
+    const result = await syncEnterpriseTranscript({
+      roomId: transcript.roomId,
+      participantId: transcript.participantId,
+      participantName: transcript.participantName,
+      text: transcript.text,
+      normalTranscriptId: transcript._id,
+    });
+    if (result?.transcript) syncedCount += 1;
+  }
+
+  return { transcriptCount: transcripts.length, syncedCount };
 };
