@@ -282,13 +282,28 @@ export const scanEnterpriseTranscript = async (req, res) => {
   const { text, participantMemberId, participantName, hostMemberId } = req.body;
   if (!meetingId || !text) return res.status(400).json({ success: false, error: "meetingId and text are required" });
 
+  let speakerMemberId = participantMemberId && isObjectId(participantMemberId) ? participantMemberId : actor.member?._id;
+  let speakerRole = actor.role === "manager" || actor.role === "rep" ? actor.role : null;
+  if (speakerMemberId) {
+    const speaker = await EnterpriseProfile.findOne({
+      _id: speakerMemberId,
+      organizationId: actor.organization._id,
+    }).select("_id role").lean();
+    if (speaker) {
+      speakerMemberId = speaker._id;
+      speakerRole = speaker.role === "manager" ? "manager" : "rep";
+    }
+  }
+
   const result = await scanTranscriptForFlags({
     organizationId: actor.organization._id,
     meetingId,
     text,
-    participantMemberId: participantMemberId && isObjectId(participantMemberId) ? participantMemberId : actor.member?._id,
+    participantMemberId: speakerMemberId,
     participantName,
     hostMemberId: hostMemberId && isObjectId(hostMemberId) ? hostMemberId : actor.member?._id,
+    speakerMemberId,
+    speakerRole,
   });
   res.status(201).json({ success: true, data: { transcript: result.transcript, flags: result.flags } });
 };
