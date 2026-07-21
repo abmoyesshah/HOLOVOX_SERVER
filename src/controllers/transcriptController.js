@@ -1,4 +1,5 @@
 const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
+import Transcript from "../models/Transcript.model.js"; // 👈 correct model
 
 /**
  * Send transcript email to user
@@ -66,6 +67,44 @@ async function sendTranscriptEmail(req, res) {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to send transcript",
+    });
+  }
+}
+async function getMeetingTranscript(req, res) {
+  try {
+    const { roomId } = req.params;
+
+    if (!roomId) {
+      return res.status(400).json({
+        success: false,
+        message: "roomId is required",
+      });
+    }
+
+    const segments = await Transcript.find({ roomId })
+      .sort({ createdAt: 1 })
+      .lean();
+
+    if (!segments.length) {
+      return res.status(200).json({
+        success: true,
+        transcript: "",
+      });
+    }
+
+    const transcript = segments
+      .map((s) => `${s.participantName}: ${s.text}`)
+      .join("\n");
+
+    return res.status(200).json({
+      success: true,
+      transcript,
+    });
+  } catch (error) {
+    console.error("Get transcript error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to fetch transcript",
     });
   }
 }
@@ -149,11 +188,7 @@ function buildTranscriptEmailHtml({ email, transcript, meetingTitle, meetingId }
                 </div>
               </div>
 
-              <div style="border-top:1px solid #eaedf2;padding-top:20px;text-align:center;">
-                <a href="https://holovox.io" style="display:inline-block;background:#e51a54;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
-                  Go to Holovox
-                </a>
-              </div>
+            
 
             </td>
           </tr>
@@ -184,4 +219,4 @@ function buildTranscriptEmailHtml({ email, transcript, meetingTitle, meetingId }
   `;
 }
 
-export { sendTranscriptEmail };
+export { sendTranscriptEmail, getMeetingTranscript };
