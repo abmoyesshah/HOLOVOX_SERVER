@@ -236,6 +236,23 @@ export const createFlagWord = async (req, res) => {
   res.status(201).json({ success: true, data: record });
 };
 
+export const deleteFlagWord = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+  if (!ensureOwner(actor, res)) return;
+
+  const { id } = req.params;
+  if (!isObjectId(id)) return res.status(400).json({ success: false, error: "Valid flag word id is required" });
+
+  const deleted = await FlagWord.findOneAndDelete({
+    _id: id,
+    organizationId: actor.organization._id,
+  });
+  if (!deleted) return res.status(404).json({ success: false, error: "Flag word not found" });
+
+  res.status(200).json({ success: true, data: { id } });
+};
+
 export const getEnterpriseFlags = async (req, res) => {
   const actor = await requireEnterpriseActor(req, res);
   if (!actor) return;
