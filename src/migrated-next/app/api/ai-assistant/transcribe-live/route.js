@@ -147,6 +147,7 @@ const text = transcription.text || "";
         participantId,
         participantName,
         text,
+        normalTranscriptId: saved._id,
       }).catch((error) =>
         console.error("Enterprise transcript sync failed:", error.message),
       );

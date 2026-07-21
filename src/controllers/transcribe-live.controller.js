@@ -72,6 +72,7 @@ const transcribeAudio = asyncHandler(async (req, res) => {
       participantId,
       participantName,
       text,
+      normalTranscriptId: saved._id,
     }).catch((error) =>
       console.error("Enterprise transcript sync failed:", error.message),
     );

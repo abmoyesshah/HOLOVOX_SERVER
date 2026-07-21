@@ -27,23 +27,41 @@ const quoteAround = (text, index, length) => {
 export const scanTranscriptForFlags = async ({
   organizationId,
   meetingId,
+  enterpriseMeetingId,
+  normalTranscriptId,
   text,
   participantMemberId,
   participantName,
   hostMemberId,
+  speakerUserId,
+  speakerMemberId,
+  speakerRole,
+  segment,
 }) => {
   const transcript = await MeetingTranscript.create({
     organizationId,
     meetingId,
+    enterpriseMeetingId: enterpriseMeetingId || null,
+    normalTranscriptId: normalTranscriptId || null,
     hostMemberId: hostMemberId || null,
     participantMemberId: participantMemberId || null,
     participantName: participantName || "",
+    speakerUserId: speakerUserId || null,
+    speakerMemberId: speakerMemberId || participantMemberId || null,
+    speakerRole: speakerRole || null,
     text,
+    segment: segment || null,
   });
 
+  if (!["manager", "rep"].includes(speakerRole)) {
+    transcript.scannedAt = new Date();
+    await transcript.save();
+    return { transcript, flags: [] };
+  }
+
   const flagWords = await FlagWord.find({ organizationId, type: "flag" }).lean();
-  const participant = participantMemberId
-    ? await EnterpriseProfile.findById(participantMemberId).select("parentId role").lean()
+  const participant = (speakerMemberId || participantMemberId)
+    ? await EnterpriseProfile.findById(speakerMemberId || participantMemberId).select("parentId role").lean()
     : null;
 
   const created = [];
@@ -57,13 +75,24 @@ export const scanTranscriptForFlags = async ({
       const userFlag = await UserFlag.create({
         organizationId,
         meetingId,
+        enterpriseMeetingId: enterpriseMeetingId || null,
         transcriptId: transcript._id,
         flagWordId: flagWord._id,
-        flaggedMemberId: participantMemberId || null,
+        flaggedMemberId: speakerMemberId || participantMemberId || null,
+        speakerUserId: speakerUserId || null,
+        speakerMemberId: speakerMemberId || participantMemberId || null,
+        speakerRole,
         managerId: participant?.parentId || null,
         quote: quoteAround(text, match.index, match[0].length),
         matchedWord: flagWord.word,
         severity: flagWord.severity,
+        category: flagWord.category,
+        segment: {
+          ...(segment || {}),
+          matchIndex: match.index,
+          matchLength: match[0].length,
+        },
+        occurredAt: new Date(),
       });
       created.push(userFlag);
     } catch (error) {

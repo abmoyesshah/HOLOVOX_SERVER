@@ -20,22 +20,25 @@ const uniqueObjectIds = (ids) => {
   });
 };
 
-export const resolveEnterpriseHost = async (hostId) => {
-  if (!isObjectId(hostId)) return null;
+const normalizeEnterpriseMemberRole = (role) => (role === "manager" ? "manager" : "rep");
 
-  const member = await EnterpriseProfile.findById(hostId)
-    .select("_id organizationId enterpriseId role fullName email")
+const resolveEnterpriseParticipant = async (userId) => {
+  if (!isObjectId(userId)) return null;
+
+  const member = await EnterpriseProfile.findById(userId)
+    .select("_id organizationId enterpriseId role fullName email parentId")
     .lean();
   if (member?.organizationId) {
     return {
       organizationId: member.organizationId,
-      hostMemberId: member._id,
-      hostUserId: null,
-      hostRole: member.role === "manager" ? "manager" : "rep",
+      memberId: member._id,
+      userId: null,
+      role: normalizeEnterpriseMemberRole(member.role),
+      member,
     };
   }
 
-  const profile = await Profile.findById(hostId)
+  const profile = await Profile.findById(userId)
     .select("_id fullName email Subscription")
     .lean();
   if (!profile) return null;
@@ -52,17 +55,42 @@ export const resolveEnterpriseHost = async (hostId) => {
 
   return {
     organizationId: organization._id,
-    hostMemberId: null,
-    hostUserId: profile._id,
-    hostRole: "owner",
+    memberId: null,
+    userId: profile._id,
+    role: "owner",
+    profile,
+  };
+};
+
+export const resolveEnterpriseHost = async (hostId) => {
+  const host = await resolveEnterpriseParticipant(hostId);
+  if (!host) return null;
+  return {
+    organizationId: host.organizationId,
+    hostMemberId: host.memberId,
+    hostUserId: host.userId,
+    hostRole: host.role,
   };
 };
 
 export const syncEnterpriseMeetingFromMeeting = async (meetingInput, statusOverride = null) => {
   if (!meetingInput?.meetingId || !meetingInput?.hostId) return null;
 
-  const host = await resolveEnterpriseHost(meetingInput.hostId);
-  if (!host?.organizationId) return null;
+  const participantIds = uniqueObjectIds([
+    meetingInput.hostId,
+    ...(meetingInput.participants || []).map((participant) => participant.userId),
+  ]);
+  const resolvedParticipants = (
+    await Promise.all(participantIds.map((id) => resolveEnterpriseParticipant(id)))
+  ).filter(Boolean);
+
+  const primaryEnterpriseParticipant = resolvedParticipants[0];
+  if (!primaryEnterpriseParticipant?.organizationId) return null;
+
+  const organizationId = primaryEnterpriseParticipant.organizationId;
+  const hostIdentity = resolvedParticipants.find(
+    (participant) => String(participant.userId || participant.memberId) === String(meetingInput.hostId),
+  );
 
   const participantUserIds = (meetingInput.participants || [])
     .map((participant) => participant.userId)
@@ -70,7 +98,7 @@ export const syncEnterpriseMeetingFromMeeting = async (meetingInput, statusOverr
   const participantMembers = participantUserIds.length
     ? await EnterpriseProfile.find({
         _id: { $in: participantUserIds },
-        organizationId: host.organizationId,
+        organizationId,
       })
         .select("_id")
         .lean()
@@ -88,16 +116,22 @@ export const syncEnterpriseMeetingFromMeeting = async (meetingInput, statusOverr
     { meetingId: meetingInput.meetingId },
     {
       $set: {
-        organizationId: host.organizationId,
+        organizationId,
         normalMeetingId: meetingInput._id || null,
-        hostUserId: host.hostUserId,
-        hostMemberId: host.hostMemberId,
-        hostRole: host.hostRole,
+        hostUserId: hostIdentity?.role === "owner" ? hostIdentity.userId : null,
+        hostMemberId: hostIdentity?.memberId || null,
+        hostRole: hostIdentity?.role || null,
+        enterpriseActorUserId:
+          primaryEnterpriseParticipant.role === "owner"
+            ? primaryEnterpriseParticipant.userId
+            : null,
+        enterpriseActorMemberId: primaryEnterpriseParticipant.memberId || null,
+        enterpriseActorRole: primaryEnterpriseParticipant.role,
         meetingTitle: meetingInput.meetingTitle || "Holovox Meeting",
         meetingDate: meetingInput.meetingDate || new Date(),
         status,
         participantMemberIds: uniqueObjectIds([
-          host.hostMemberId,
+          hostIdentity?.memberId,
           ...participantMembers.map((member) => member._id),
         ]),
         endedAt: status === "ended" ? new Date() : null,
@@ -118,6 +152,8 @@ export const syncEnterpriseTranscript = async ({
   participantId,
   participantName,
   text,
+  normalTranscriptId,
+  segment,
 }) => {
   if (!roomId || !text || !text.trim()) return null;
 
@@ -130,22 +166,34 @@ export const syncEnterpriseTranscript = async ({
   if (!enterpriseMeeting?.organizationId) return null;
 
   let participantMemberId = null;
+  let speakerUserId = null;
+  let speakerMemberId = null;
+  let speakerRole = null;
   if (isObjectId(participantId)) {
-    const participantProfile = await EnterpriseProfile.findOne({
-      _id: participantId,
-      organizationId: enterpriseMeeting.organizationId,
-    })
-      .select("_id")
-      .lean();
-    if (participantProfile) participantMemberId = participantProfile._id;
+    const participantIdentity = await resolveEnterpriseParticipant(participantId);
+    const sameOrganization =
+      participantIdentity?.organizationId &&
+      String(participantIdentity.organizationId) === String(enterpriseMeeting.organizationId);
+    if (sameOrganization) {
+      participantMemberId = participantIdentity.memberId || null;
+      speakerMemberId = participantIdentity.memberId || null;
+      speakerUserId = participantIdentity.userId || null;
+      speakerRole = participantIdentity.role;
+    }
   }
 
   return scanTranscriptForFlags({
     organizationId: enterpriseMeeting.organizationId,
     meetingId: roomId,
+    enterpriseMeetingId: enterpriseMeeting._id,
+    normalTranscriptId,
     text,
     participantMemberId,
     participantName,
     hostMemberId: enterpriseMeeting.hostMemberId || null,
+    speakerUserId,
+    speakerMemberId,
+    speakerRole,
+    segment,
   });
 };
