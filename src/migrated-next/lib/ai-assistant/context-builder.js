@@ -33,7 +33,8 @@ async function detectTopicsFromText(text) {
       system: `You are a topic detection system. Extract the main topic(s) and keywords from the following text.
       Return ONLY a comma-separated list of topics/keywords (max 5).
       Be specific and concise.
-      Example: "sales pitch, product features, pricing strategy, customer objections"`,
+      Example: "sales pitch, product features, pricing strategy, customer objections"
+      If the text is a general question (like weather, time, greetings), return "general" as the only topic.`,
       messages: [
         {
           role: "user",
@@ -117,6 +118,69 @@ function scoreChunkByTokens(chunk, queryTokens) {
   }
 
   return overlap / queryTokens.length;
+}
+
+// =============================================
+// 2.5 DETECT IF QUERY IS GENERAL
+// =============================================
+
+/**
+ * Check if the query is a general question that doesn't need context
+ */
+function isGeneralQuery(text) {
+  const generalPatterns = [
+    // Greetings
+    /^(hi|hello|hey|good morning|good afternoon|good evening|how are you|what's up|sup|yo|hola)/i,
+    // Weather
+    /weather|temperature|rain|sunny|cloudy|hot|cold|forecast/i,
+    // Time/Date
+    /what time|what's the time|what day|what date|what's today|what's the date/i,
+    // General small talk
+    /how's it going|how are you doing|what's new|what's happening|how have you been/i,
+    // Simple questions about the assistant
+    /who are you|what are you|what is your name|what do you do|are you real/i,
+    // Simple yes/no questions
+    /are you there|can you hear me|can you help me|do you understand/i,
+    // General knowledge questions (not business specific)
+    /what is (?!.*(?:product|service|company|feature|price|cost|plan|offer|solution|software|app|platform|integration|api|tool|system|workflow|automation|analytics|dashboard|report|customer|client|user|support|team|employee|hire|job|career|position|role|budget|goal|target|strategy|timeline|deadline|roadmap|version|update|upgrade|migration|deployment|implementation|training|onboarding|documentation|manual|guide|tutorial|demo|trial|pilot|feedback|review|test|quality|security|compliance|license|contract|agreement|partner|vendor|provider|solution|expertise|experience|case study|testimonial))/i,
+    // General questions without specific topics
+    /^what (?!.*(?:product|service|company|feature|price|cost|plan|offer|solution|software|app|platform|integration|api|tool|system|workflow|automation|analytics|dashboard|report|customer|client|user|support|team|employee|hire|job|career|position|role|budget|goal|target|strategy|timeline|deadline|roadmap|version|update|upgrade|migration|deployment|implementation|training|onboarding|documentation|manual|guide|tutorial|demo|trial|pilot|feedback|review|test|quality|security|compliance|license|contract|agreement|partner|vendor|provider|solution|expertise|experience|case study|testimonial))/i,
+  ];
+
+  // Check if any pattern matches
+  for (const pattern of generalPatterns) {
+    if (pattern.test(text)) {
+      console.log(`🟢 [GENERAL QUERY] Detected as general: "${text.slice(0, 50)}..."`);
+      return true;
+    }
+  }
+
+  // Check if the query has any keywords that suggest it needs context
+  const contextKeywords = [
+    'product', 'service', 'company', 'feature', 'price', 'cost', 'plan', 'offer',
+    'solution', 'software', 'app', 'platform', 'integration', 'api', 'tool', 'system',
+    'workflow', 'automation', 'analytics', 'dashboard', 'report', 'customer', 'client',
+    'user', 'support', 'team', 'employee', 'hire', 'job', 'career', 'position', 'role',
+    'budget', 'goal', 'target', 'strategy', 'timeline', 'deadline', 'roadmap', 'version',
+    'update', 'upgrade', 'migration', 'deployment', 'implementation', 'training',
+    'onboarding', 'documentation', 'manual', 'guide', 'tutorial', 'demo', 'trial',
+    'pilot', 'feedback', 'review', 'test', 'quality', 'security', 'compliance',
+    'license', 'contract', 'agreement', 'partner', 'vendor', 'provider', 'solution',
+    'expertise', 'experience', 'case study', 'testimonial'
+  ];
+
+  const hasContextKeyword = contextKeywords.some(keyword => 
+    text.toLowerCase().includes(keyword)
+  );
+
+  // If no context keywords, it's probably a general question
+  if (!hasContextKeyword) {
+    console.log(`🟢 [GENERAL QUERY] No context keywords found: "${text.slice(0, 50)}..."`);
+    return true;
+  }
+
+  console.log(`🔵 [CONTEXT QUERY] Contains context keywords: "${text.slice(0, 50)}..."`);
+  return false;
 }
 
 // =============================================
@@ -412,7 +476,7 @@ async function identifyTargetUser(queryText, roomId, currentUserId) {
 }
 
 // =============================================
-// 4. RETRIEVAL - MULTI-USER
+// 4. RETRIEVAL - MULTI-USER WITH HYBRID APPROACH
 // =============================================
 
 async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = BRAIN_TOP_K) {
@@ -426,15 +490,27 @@ async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = B
     return [];
   }
 
-  // Step 1: Identify target user
+  // Step 1: Check if this is a general query
+  const isGeneral = isGeneralQuery(queryText);
+  
+  if (isGeneral) {
+    console.log('🟢 [BRAIN RETRIEVAL] General query detected - skipping chunk search');
+    // Return empty array for general queries (they'll be handled by the AI directly)
+    return [];
+  }
+
+  // Step 2: For context-specific queries, proceed with normal retrieval
+  console.log('🔵 [BRAIN RETRIEVAL] Context-specific query - searching for relevant chunks');
+
+  // Identify target user
   const targetUserId = await identifyTargetUser(queryText, roomId, userId);
   console.log(`🎯 Target User (who has knowledge): ${targetUserId}`);
 
-  // Step 2: Get all users who have chunks
+  // Get all users who have chunks
   const usersWithChunks = await BrainChunk.distinct('user_id');
   console.log(`📊 Users with chunks: ${usersWithChunks.join(', ') || 'none'}`);
 
-  // Step 3: Build list of users to search
+  // Build list of users to search
   let userIdsToSearch = [];
 
   // ALWAYS include the target user
@@ -450,7 +526,7 @@ async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = B
   userIdsToSearch = [...new Set(userIdsToSearch)];
   console.log(`🔍 Searching chunks from users: ${userIdsToSearch.join(', ')}`);
 
-  // Step 4: Fetch chunks
+  // Fetch chunks
   const allChunks = await BrainChunk.find({
     user_id: { $in: userIdsToSearch }
   })
@@ -471,7 +547,7 @@ async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = B
   }, {});
   console.log('📊 Chunks by user:', chunksByUser);
 
-  // Step 5: Score and rank chunks
+  // Score and rank chunks
   const queryTokens = tokenize(queryText);
   const detectedTopics = await detectTopicsFromText(queryText);
   console.log(`🎯 Detected topics: ${detectedTopics.join(", ")}`);
@@ -554,8 +630,8 @@ async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = B
 function getPriorityPolicy() {
   return {
     order: [
-      "1_target_user_questionnaire",  // Changed: Target user's profile
-      "2_brain_files_relevant",       // Target user's chunks
+      "1_target_user_questionnaire",
+      "2_brain_files_relevant",
       "3_session_memory",
       "4_recent_transcripts",
     ],
@@ -733,16 +809,17 @@ export async function buildAssistContext({
 
   // Build the context object
   const context = {
-    userId: targetUserId, // Use TARGET user as the primary user
-    speakerUserId: userId, // Keep track of who spoke
+    userId: targetUserId,
+    speakerUserId: userId,
     roomId,
     sessionId,
-    profile: targetProfile, // TARGET user's profile
+    profile: targetProfile,
     retrievedChunks,
     recentTranscripts,
     recentMemory,
     priorityPolicy: getPriorityPolicy(),
     queryText,
+    isGeneralQuery: isGeneralQuery(queryText), // Add flag for general queries
 
     // Formatted texts for prompt building
     profileText: formatQuestionnaire(targetProfile),
@@ -757,6 +834,7 @@ export async function buildAssistContext({
   console.log(`  ✅ Brain Chunks: ${retrievedChunks.length}`);
   console.log(`  ✅ Session Memory: ${recentMemory.length}`);
   console.log(`  ✅ Transcripts: ${recentTranscripts.length}`);
+  console.log(`  ✅ Is General Query: ${context.isGeneralQuery}`);
 
   console.log('\n📝 [CONTEXT BUILDER] Final Context Prompt Preview:');
   console.log('─'.repeat(80));
@@ -769,7 +847,7 @@ export async function buildAssistContext({
 }
 
 // =============================================
-// 8. PROMPT BUILDER - UPDATED WITH FILTERS
+// 8. PROMPT BUILDER - UPDATED WITH HYBRID APPROACH
 // =============================================
 
 export function buildContextPrompt(context) {
@@ -779,6 +857,38 @@ export function buildContextPrompt(context) {
     .map((item, index) => `${index + 1}. ${item}`)
     .join("\n");
 
+  // Different system prompts for general vs context queries
+  let contextSection = "";
+  
+  if (context.isGeneralQuery) {
+    contextSection = `
+--- GENERAL QUERY DETECTED ---
+This is a general question that doesn't require specific business context.
+Respond naturally using the user's profile for tone and style.
+Use your general knowledge to answer appropriately.
+Do not mention that you don't have context - just respond naturally.
+Keep responses concise and helpful.
+`;
+  } else if (context.brainChunksText && context.brainChunksText !== "No relevant brain files found") {
+    contextSection = `
+--- RELEVANT BRAIN KNOWLEDGE FOUND ---
+${context.brainChunksText}
+
+Use the above brain knowledge as the PRIMARY source for your response.
+Only provide information that is directly supported by these brain files.
+If the brain files don't contain the answer, say so clearly.
+Do not make up or infer information not present in the brain files.
+`;
+  } else {
+    contextSection = `
+--- NO RELEVANT BRAIN KNOWLEDGE ---
+No relevant brain files were found for this query.
+However, you can still respond using your general knowledge.
+Be honest if you don't know something specific.
+Keep responses concise and helpful.
+`;
+  }
+
   const prompt = `
 SYSTEM CONTEXT PRIORITY (Strict Order):
 ${priorityOrder}
@@ -786,8 +896,7 @@ ${priorityOrder}
 --- PRIORITY 1: TARGET USER PROFILE & COMMUNICATION STYLE ---
 ${context.profileText || "Not available"}
 
---- PRIORITY 2: RELEVANT BRAIN KNOWLEDGE ---
-${context.brainChunksText || "No relevant knowledge found"}
+${contextSection}
 
 --- PRIORITY 3: SESSION MEMORY (Continuity) ---
 ${context.memoryText || "No session history"}
@@ -797,22 +906,16 @@ ${context.transcriptsText || "No meeting context"}
 
 POLICY NOTES:
 - ALWAYS use the target user's profile for tone, goals, and communication style
-- Use brain knowledge as primary source for content and expertise
-- ONLY provide answers that are directly relevant to the question
-- If you don't have relevant information, say "I don't have that information" - DO NOT make up answers
-- DO NOT generate generic responses like "I'm ready to assist" or "What is your goal"
-- Focus on providing specific, actionable information from the brain files
-
-CRITICAL RULES:
-- Never include "I don't have" or "I cannot" type responses unless truly necessary
-- Never include "I'm here to help" or similar generic statements
-- If no relevant context is found, return an empty response (will be filtered out)
-- ONLY respond when you have specific information from the brain files
+- For general queries, respond naturally without needing brain context
+- For business queries, rely primarily on brain knowledge
+- Be helpful, concise, and professional
+- Avoid generic responses like "I'm ready to assist"
 
 CURRENT QUERY: "${context.queryText || ""}"
 `;
 
   console.log(`📝 [PROMPT BUILDER] Generated prompt with ${prompt.length} characters`);
+  console.log(`  📌 Query Type: ${context.isGeneralQuery ? '🟢 General' : '🔵 Context-Specific'}`);
 
   return prompt;
 }
@@ -867,4 +970,5 @@ export {
   formatQuestionnaire,
   formatBrainChunks,
   identifyTargetUser,
+  isGeneralQuery,
 };
