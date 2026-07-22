@@ -187,9 +187,6 @@ function buildTranscriptEmailHtml({ email, transcript, meetingTitle, meetingId }
                   Powered by Holovox — AI coaching for every call.
                 </div>
               </div>
-
-            
-
             </td>
           </tr>
 
