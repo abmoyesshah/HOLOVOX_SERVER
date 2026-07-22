@@ -2,6 +2,7 @@ import express from "express";
 import { upload } from "../middlewares/Multer.middleware.js";
 import {
   createEnterpriseUser,
+  createEnterpriseCoachingMeeting,
   createFlagWord,
   deleteFlagWord,
   getBrainTrainingFiles,
@@ -13,6 +14,7 @@ import {
   getFlagWords,
   reparentEnterpriseUser,
   scanEnterpriseTranscript,
+  updateEnterpriseMeeting,
   updateEnterpriseFlag,
   uploadBrainTrainingFile,
 } from "../controllers/enterprise.controller.js";
@@ -39,6 +41,8 @@ router.get("/enterprise/flags", asyncRoute(getEnterpriseFlags));
 router.patch("/enterprise/flags/:id", asyncRoute(updateEnterpriseFlag));
 router.post("/enterprise/transcripts/:meetingId/scan", asyncRoute(scanEnterpriseTranscript));
 router.get("/enterprise/meetings", asyncRoute(getEnterpriseMeetings));
+router.post("/enterprise/meetings/coaching", asyncRoute(createEnterpriseCoachingMeeting));
+router.patch("/enterprise/meetings/:meetingId", asyncRoute(updateEnterpriseMeeting));
 router.get("/enterprise/meetings/:meetingId", asyncRoute(getEnterpriseMeetingDetail));
 
 router.use((error, req, res, next) => {
