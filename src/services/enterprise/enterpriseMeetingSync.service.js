@@ -4,6 +4,7 @@ import Transcript from "../../models/Transcript.model.js";
 import Profile from "../../models/Profile.model.js";
 import EnterpriseProfile from "../../migrated-next/app/models/EnterpriseProfile.model.js";
 import EnterpriseMeeting from "../../models/enterprise/EnterpriseMeeting.model.js";
+import UserFlag from "../../models/enterprise/UserFlag.model.js";
 import EnterpriseOrganization from "../../models/enterprise/EnterpriseOrganization.model.js";
 import { resolveOrganization } from "./enterpriseAccess.service.js";
 import { scanTranscriptForFlags } from "./transcriptFlagScanner.service.js";
@@ -137,7 +138,7 @@ export const syncEnterpriseMeetingFromMeeting = async (meetingInput, statusOverr
     statusOverride ||
     (allEnded ? "ended" : meetingInput.upcoming ? "created" : "live");
 
-  return EnterpriseMeeting.findOneAndUpdate(
+  const enterpriseMeeting = await EnterpriseMeeting.findOneAndUpdate(
     { meetingId: meetingInput.meetingId },
     {
       $set: {
@@ -153,6 +154,12 @@ export const syncEnterpriseMeetingFromMeeting = async (meetingInput, statusOverr
         enterpriseActorMemberId: primaryEnterpriseParticipant.memberId || null,
         enterpriseActorRole: primaryEnterpriseParticipant.role,
         meetingTitle: meetingInput.meetingTitle || "Holovox Meeting",
+        meetingPurpose:
+          meetingInput.enterpriseMeetingPurpose === "coaching" ? "coaching" : "general",
+        coachingFlagId:
+          meetingInput.enterpriseCoachingFlagId && isObjectId(meetingInput.enterpriseCoachingFlagId)
+            ? meetingInput.enterpriseCoachingFlagId
+            : null,
         meetingDate: meetingInput.meetingDate || new Date(),
         status,
         participantMemberIds: uniqueObjectIds([
@@ -168,6 +175,24 @@ export const syncEnterpriseMeetingFromMeeting = async (meetingInput, statusOverr
     },
     { new: true, upsert: true }
   );
+
+  if (enterpriseMeeting?.coachingFlagId) {
+    await UserFlag.findOneAndUpdate(
+      {
+        _id: enterpriseMeeting.coachingFlagId,
+        organizationId: enterpriseMeeting.organizationId,
+      },
+      {
+        $set: {
+          coachingMeetingId: enterpriseMeeting.meetingId,
+          coachingEnterpriseMeetingId: enterpriseMeeting._id,
+          coachingScheduledAt: enterpriseMeeting.meetingDate || new Date(),
+        },
+      },
+    );
+  }
+
+  return enterpriseMeeting;
 };
 
 export const markEnterpriseMeetingEnded = async (meetingInput) =>

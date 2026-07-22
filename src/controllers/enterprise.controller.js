@@ -207,7 +207,7 @@ export const getBrainTrainingFiles = async (req, res) => {
 export const getFlagWords = async (req, res) => {
   const actor = await requireEnterpriseActor(req, res);
   if (!actor) return;
-  if (actor.role === "rep") return res.status(403).json({ success: false, error: "Reps cannot view organization flag words" });
+  if (actor.role === "rep") return res.status(200).json({ success: true, data: [] });
   const words = await FlagWord.find({ organizationId: actor.organization._id }).sort({ type: 1, word: 1 }).lean();
   res.status(200).json({ success: true, data: words });
 };
@@ -256,10 +256,10 @@ export const deleteFlagWord = async (req, res) => {
 export const getEnterpriseFlags = async (req, res) => {
   const actor = await requireEnterpriseActor(req, res);
   if (!actor) return;
-  if (actor.role === "rep") return res.status(403).json({ success: false, error: "Reps cannot view flags" });
 
   const query = { organizationId: actor.organization._id };
   if (actor.role === "manager") query.managerId = actor.id;
+  if (actor.role === "rep") query.flaggedMemberId = actor.id;
   const flags = await UserFlag.find(query)
     .populate("flaggedMemberId", "fullName email role parentId")
     .populate("flagWordId", "word type severity")
@@ -273,7 +273,7 @@ export const updateEnterpriseFlag = async (req, res) => {
   if (!actor) return;
 
   const { id } = req.params;
-  const { status } = req.body;
+  const { status, coachingMeetingId } = req.body;
   const allowed = ["flagged", "manager_review", "rep_coached", "repaired", "resolved"];
   if (!isObjectId(id) || !allowed.includes(status)) {
     return res.status(400).json({ success: false, error: "Valid flag id and status are required" });
@@ -282,12 +282,46 @@ export const updateEnterpriseFlag = async (req, res) => {
 
   const query = { _id: id, organizationId: actor.organization._id };
   if (actor.role === "manager") query.managerId = actor.id;
-  const flag = await UserFlag.findOneAndUpdate(
-    query,
-    { status, resolvedAt: status === "resolved" ? new Date() : null },
-    { new: true }
-  );
+  const flag = await UserFlag.findOne(query);
   if (!flag) return res.status(404).json({ success: false, error: "Flag not found" });
+  if (coachingMeetingId) flag.coachingMeetingId = String(coachingMeetingId).trim();
+
+  if (status === "resolved") {
+    if (!flag.coachingMeetingId) {
+      return res.status(400).json({
+        success: false,
+        error: "A coaching meeting must be scheduled before resolving this flag",
+      });
+    }
+
+    const coachingMeeting = await EnterpriseMeeting.findOne({
+      organizationId: actor.organization._id,
+      meetingId: flag.coachingMeetingId,
+      meetingPurpose: "coaching",
+    }).lean();
+
+    const endedAt = coachingMeeting?.endedAt ? new Date(coachingMeeting.endedAt) : null;
+    if (!coachingMeeting || coachingMeeting.status !== "ended" || !endedAt || endedAt.getTime() > Date.now()) {
+      return res.status(400).json({
+        success: false,
+        error: "This flag can only be resolved after its coaching meeting has ended",
+      });
+    }
+  }
+
+  flag.status = status;
+  flag.resolvedAt = status === "resolved" ? new Date() : null;
+  if (status === "rep_coached" && !flag.coachingScheduledAt) flag.coachingScheduledAt = new Date();
+  if (flag.coachingMeetingId) {
+    const coachingMeeting = await EnterpriseMeeting.findOne({
+      organizationId: actor.organization._id,
+      meetingId: flag.coachingMeetingId,
+    }).select("_id").lean();
+    flag.coachingEnterpriseMeetingId = coachingMeeting?._id || flag.coachingEnterpriseMeetingId;
+  }
+  await flag.save();
+  await flag.populate("flaggedMemberId", "fullName email role parentId");
+  await flag.populate("flagWordId", "word type severity");
   res.status(200).json({ success: true, data: flag });
 };
 

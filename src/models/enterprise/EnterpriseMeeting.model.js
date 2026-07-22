@@ -62,6 +62,18 @@ const EnterpriseMeetingSchema = new mongoose.Schema(
       default: "Holovox Meeting",
       trim: true,
     },
+    meetingPurpose: {
+      type: String,
+      enum: ["general", "coaching"],
+      default: "general",
+      index: true,
+    },
+    coachingFlagId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "UserFlag",
+      default: null,
+      index: true,
+    },
     meetingDate: {
       type: Date,
       default: Date.now,
