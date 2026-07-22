@@ -166,9 +166,7 @@ export async function GET(req) {
   );
     // Calculate stats
     const stats = {
-      sessions: sessions.length,
-      cards: avgCards,
-      recoveries: totalRecoveries,
+      
       files: files.length,
       processedFiles: files.filter(f => f.ingestion_status === 'ready').length,
       pendingFiles: files.filter(f => f.ingestion_status === 'pending').length,
@@ -190,6 +188,8 @@ export async function GET(req) {
       // Stats
       stats: {
         sessions: sessions.length,
+      cards: avgCards,
+      recoveries: totalRecoveries,
         files: files.length,
         processedFiles: files.filter(f => f.ingestion_status === 'ready').length,
         pendingFiles: files.filter(f => f.ingestion_status === 'pending').length,
