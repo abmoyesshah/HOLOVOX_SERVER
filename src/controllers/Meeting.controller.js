@@ -915,7 +915,7 @@ export const endMeeting = async (req, res) => {
 
 export const shareMeeting = async (req, res) => {
   try {
-    const { meetingLink, emails, meetingId, hostName, hostEmail, title, time } =
+    const { meetingLink, emails, meetingId, hostName, hostEmail, title, agenda, time, date } =
       req.body;
 
     console.log("📨 Share Meeting Request:", {
@@ -925,7 +925,10 @@ export const shareMeeting = async (req, res) => {
       hostName,
       hostEmail,
       title,
+      agenda,
       time,
+      date,
+
     });
     console.log("📧 EMAIL_FROM:", process.env.EMAIL_FROM);
 
