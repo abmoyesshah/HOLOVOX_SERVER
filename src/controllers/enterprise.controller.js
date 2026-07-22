@@ -16,6 +16,8 @@ import sendMail from "../utils/Nodemailer.js";
 
 const isObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 const normalizeFlagWord = (word) => String(word || "").toLowerCase().replace(/[^\w\s'-]/g, "").trim();
+const uniqueIds = (ids) => [...new Set(ids.filter(Boolean).map((id) => String(id)))];
+const coachingMeetingId = () => `coach-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
 const generatedPasswordFallback = () =>
   Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -392,9 +394,179 @@ export const getEnterpriseMeetings = async (req, res) => {
     .sort({ meetingDate: -1, createdAt: -1 })
     .populate("hostMemberId", "fullName email role")
     .populate("participantMemberIds", "fullName email role parentId")
+    .populate("coachingFlagId", "matchedWord severity status flaggedMemberId")
     .lean();
 
   res.status(200).json({ success: true, data: meetings });
+};
+
+export const createEnterpriseCoachingMeeting = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+  if (actor.role === "rep") return res.status(403).json({ success: false, error: "Reps cannot schedule coaching meetings" });
+
+  const { flagId, participantMemberIds = [], meetingDate, meetingTitle } = req.body;
+  const flagQuery = { organizationId: actor.organization._id };
+  if (flagId && isObjectId(flagId)) flagQuery._id = flagId;
+  if (actor.role === "manager") flagQuery.managerId = actor.id;
+
+  const flag = flagId ? await UserFlag.findOne(flagQuery) : null;
+  if (flagId && !flag) return res.status(404).json({ success: false, error: "Flag not found" });
+
+  const requestedParticipantIds = uniqueIds([
+    ...participantMemberIds,
+    flag?.flaggedMemberId,
+    actor.role === "manager" ? actor.id : null,
+    actor.role === "owner" ? flag?.managerId : null,
+  ]);
+
+  if (!requestedParticipantIds.length) {
+    return res.status(400).json({ success: false, error: "At least one coaching participant is required" });
+  }
+
+  const members = await EnterpriseProfile.find({
+    _id: { $in: requestedParticipantIds },
+    organizationId: actor.organization._id,
+  }).select("_id fullName email role parentId").lean();
+
+  if (members.length !== requestedParticipantIds.length) {
+    return res.status(400).json({ success: false, error: "One or more participants were not found" });
+  }
+
+  const blocked = members.find((member) => !canManageMember(actor, member) && String(member._id) !== String(actor.id));
+  if (blocked) return res.status(403).json({ success: false, error: "You cannot coach one or more selected participants" });
+
+  const scheduledAt = meetingDate ? new Date(meetingDate) : new Date(Date.now() + 60 * 60 * 1000);
+  if (Number.isNaN(scheduledAt.getTime())) {
+    return res.status(400).json({ success: false, error: "meetingDate must be a valid date" });
+  }
+
+  const hostId = actor.role === "owner" ? actor.ownerId : actor.id;
+  const hostName = actor.profile?.fullName || actor.member?.fullName || "Holovox Coach";
+  const hostEmail = actor.profile?.email || actor.member?.email || "";
+  const roomId = coachingMeetingId();
+  const time = scheduledAt.toTimeString().slice(0, 5);
+
+  const meeting = await MeetingModel.create({
+    meetingId: roomId,
+    hostId,
+    meetingTitle: meetingTitle || `Coaching: ${members.map((member) => member.fullName).join(", ")}`,
+    meetingDate: scheduledAt,
+    time,
+    upcoming: scheduledAt.getTime() > Date.now(),
+    enterpriseMeetingPurpose: "coaching",
+    enterpriseCoachingFlagId: flag?._id || null,
+    participants: [
+      { userId: hostId, name: hostName, email: hostEmail, role: "host" },
+      ...members
+        .filter((member) => String(member._id) !== String(hostId))
+        .map((member) => ({
+          userId: member._id,
+          name: member.fullName,
+          email: member.email,
+          role: "participant",
+          end: false,
+        })),
+    ],
+  });
+
+  const enterpriseMeeting = await EnterpriseMeeting.findOneAndUpdate(
+    { meetingId: roomId },
+    {
+      $set: {
+        organizationId: actor.organization._id,
+        normalMeetingId: meeting._id,
+        hostUserId: actor.role === "owner" ? actor.ownerId : null,
+        hostMemberId: actor.role === "manager" ? actor.id : null,
+        hostRole: actor.role,
+        enterpriseActorUserId: actor.role === "owner" ? actor.ownerId : null,
+        enterpriseActorMemberId: actor.role === "manager" ? actor.id : null,
+        enterpriseActorRole: actor.role,
+        meetingTitle: meeting.meetingTitle,
+        meetingPurpose: "coaching",
+        coachingFlagId: flag?._id || null,
+        meetingDate: scheduledAt,
+        status: "created",
+        participantMemberIds: members.map((member) => member._id),
+      },
+    },
+    { new: true, upsert: true },
+  )
+    .populate("hostMemberId", "fullName email role")
+    .populate("participantMemberIds", "fullName email role parentId");
+
+  if (flag) {
+    flag.coachingMeetingId = roomId;
+    flag.coachingEnterpriseMeetingId = enterpriseMeeting._id;
+    flag.coachingScheduledAt = scheduledAt;
+    if (["flagged", "manager_review"].includes(flag.status)) flag.status = "rep_coached";
+    await flag.save();
+  }
+
+  res.status(201).json({ success: true, data: enterpriseMeeting });
+};
+
+export const updateEnterpriseMeeting = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+  if (actor.role === "rep") return res.status(403).json({ success: false, error: "Reps cannot manage coaching meetings" });
+
+  const { meetingId } = req.params;
+  const { status, meetingDate } = req.body;
+  const allowedStatuses = ["created", "live", "ended", "processed"];
+  if (!meetingId) return res.status(400).json({ success: false, error: "meetingId is required" });
+  if (status && !allowedStatuses.includes(status)) {
+    return res.status(400).json({ success: false, error: "Invalid meeting status" });
+  }
+
+  const meeting = await EnterpriseMeeting.findOne({
+    organizationId: actor.organization._id,
+    meetingId,
+    meetingPurpose: "coaching",
+  });
+  if (!meeting) return res.status(404).json({ success: false, error: "Coaching meeting not found" });
+
+  if (actor.role === "manager") {
+    const visibleMembers = await getVisibleMembers(actor);
+    const visibleIds = new Set(visibleMembers.map((member) => String(member._id)));
+    const canManage =
+      String(meeting.hostMemberId || "") === String(actor.id) ||
+      (meeting.participantMemberIds || []).some((id) => visibleIds.has(String(id)));
+    if (!canManage) return res.status(404).json({ success: false, error: "Coaching meeting not found" });
+  }
+
+  if (meetingDate) {
+    const scheduledAt = new Date(meetingDate);
+    if (Number.isNaN(scheduledAt.getTime())) {
+      return res.status(400).json({ success: false, error: "meetingDate must be a valid date" });
+    }
+    meeting.meetingDate = scheduledAt;
+  }
+
+  if (status) {
+    meeting.status = status;
+    if (status === "live" && !meeting.startedAt) meeting.startedAt = new Date();
+    if (status === "ended" || status === "processed") meeting.endedAt = meeting.endedAt || new Date();
+  }
+  await meeting.save();
+
+  const normalMeetingUpdate = {};
+  if (meetingDate) {
+    normalMeetingUpdate.meetingDate = meeting.meetingDate;
+    normalMeetingUpdate.time = meeting.meetingDate.toTimeString().slice(0, 5);
+    normalMeetingUpdate.upcoming = meeting.meetingDate.getTime() > Date.now();
+  }
+  if (status === "live") normalMeetingUpdate.upcoming = false;
+  if (status === "ended" || status === "processed") normalMeetingUpdate["participants.$[].end"] = true;
+  if (Object.keys(normalMeetingUpdate).length) {
+    await MeetingModel.updateOne({ meetingId }, { $set: normalMeetingUpdate });
+  }
+
+  const populated = await EnterpriseMeeting.findById(meeting._id)
+    .populate("hostMemberId", "fullName email role")
+    .populate("participantMemberIds", "fullName email role parentId")
+    .lean();
+  res.status(200).json({ success: true, data: populated });
 };
 
 // GET /enterprise/meetings/:meetingId
