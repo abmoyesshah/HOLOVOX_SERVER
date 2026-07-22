@@ -1,13 +1,13 @@
 
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-// import dns from "node:dns";
+import dns from "node:dns";
 dotenv.config();
 
-// dns.setServers([
-//   '1.1.1.1',
-//   '8.8.8.8'
-// ]);
+dns.setServers([
+  '1.1.1.1',
+  '8.8.8.8'
+]);
 
 const MONGODB_URI = process.env.MONGODB_URI;
 

@@ -68,6 +68,17 @@ const MeetingSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+    enterpriseMeetingPurpose: {
+      type: String,
+      enum: ["general", "coaching"],
+      default: "general",
+      index: true,
+    },
+    enterpriseCoachingFlagId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
 
     isDeleted: {
     type: Boolean,
