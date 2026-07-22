@@ -15,6 +15,8 @@ const shareMeetingTemplate = (
   hostName = "Holovox Host",
   hostEmail = "host@holovox.com",
   title,
+  agenda,
+  date,
   time,
 ) => {
   // Generate a meeting ID if not provided
@@ -61,6 +63,8 @@ const shareMeetingTemplate = (
                 
                 <div style="font-size:14px;color:#333333;line-height:1.8;">
                   <div><strong>Topic:</strong> ${title || "Holovox Session"}</div>
+                  <div><strong>Agenda: </strong> ${agenda || "No agenda provided"}</div>
+                  <div><strong>Date:</strong> ${date || "Date Not Specified"}</div>
                   <div><strong>Time:</strong> ${
                     time ||
                     new Date().toLocaleString("en-US", {
@@ -250,9 +254,6 @@ export const createMeeting = async (req, res) => {
       time,
       upcoming,
       password,
-      participants = [],
-      enterpriseMeetingPurpose,
-      enterpriseCoachingFlagId,
     } = req.body;
 
     console.log("Create Meeting Payload:", {
@@ -278,19 +279,6 @@ export const createMeeting = async (req, res) => {
       passwordProtected = true;
     }
 
-    const normalizedParticipants = Array.isArray(participants)
-      ? participants
-          .filter((participant) => participant?.userId && participant?.name)
-          .map((participant) => ({
-            userId: participant.userId,
-            name: participant.name,
-            email: participant.email || "",
-            role: participant.role === "host" ? "host" : "participant",
-            end: false,
-          }))
-          .filter((participant) => String(participant.userId) !== String(hostId))
-      : [];
-
     const meeting = await MeetingModel.create({
       meetingId,
       hostId,
@@ -298,8 +286,6 @@ export const createMeeting = async (req, res) => {
       meetingDate: date ? new Date(date) : new Date(),
       time: time || "00:00",
       upcoming: upcoming !== undefined ? upcoming : false,
-      enterpriseMeetingPurpose: enterpriseMeetingPurpose === "coaching" ? "coaching" : "general",
-      enterpriseCoachingFlagId: enterpriseCoachingFlagId || null,
       password: hashedPassword, // <-- add this
       passwordProtected, // <-- add this
       participants: [
@@ -309,17 +295,12 @@ export const createMeeting = async (req, res) => {
           email,
           role: "host",
         },
-        ...normalizedParticipants,
       ],
     });
 
-    if (meeting.enterpriseMeetingPurpose === "coaching") {
-      await syncEnterpriseMeetingFromMeeting(meeting);
-    } else {
-      syncEnterpriseMeetingFromMeeting(meeting).catch((error) =>
-        console.error("Enterprise meeting create sync failed:", error.message),
-      );
-    }
+    syncEnterpriseMeetingFromMeeting(meeting).catch((error) =>
+      console.error("Enterprise meeting create sync failed:", error.message),
+    );
 
     await Event.create({
       userId: hostId,
