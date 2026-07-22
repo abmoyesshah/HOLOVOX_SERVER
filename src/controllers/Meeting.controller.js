@@ -64,7 +64,7 @@ const shareMeetingTemplate = (
                 <div style="font-size:14px;color:#333333;line-height:1.8;">
                   <div><strong>Topic:</strong> ${title || "Holovox Session"}</div>
                   <div><strong>Agenda: </strong> ${agenda || "No agenda provided"}</div>
-                  <div><strong>Date:</strong> ${Date || "Date Not Specified"}</div>
+                  <div><strong>Date:</strong> ${date || "Date Not Specified"}</div>
                   <div><strong>Time:</strong> ${
                     time ||
                     new Date().toLocaleString("en-US", {
@@ -1005,6 +1005,7 @@ export const shareMeeting = async (req, res) => {
           hostEmail || "host@holovox.com",
           title || "Holovox Session",
           agenda || "No agenda provided",
+          date || "Date not specified",
           time ||
             new Date().toLocaleString("en-US", {
               weekday: "long",
@@ -1014,7 +1015,6 @@ export const shareMeeting = async (req, res) => {
               hour: "2-digit",
               minute: "2-digit",
             }),
-            date || "Date not specified",
         );
 
         await sendMail(
