@@ -98,6 +98,22 @@ const UserFlagSchema = new mongoose.Schema(
       default: "flagged",
       index: true,
     },
+    coachingMeetingId: {
+      type: String,
+      default: "",
+      trim: true,
+      index: true,
+    },
+    coachingEnterpriseMeetingId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EnterpriseMeeting",
+      default: null,
+      index: true,
+    },
+    coachingScheduledAt: {
+      type: Date,
+      default: null,
+    },
     occurredAt: {
       type: Date,
       default: Date.now,
