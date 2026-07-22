@@ -163,7 +163,7 @@ export async function POST(req) {
 
     // Save transcript
     let saved = null;
-    if (text) {
+    if (text && text.length > 10) {
       saved = await Transcript.create({
         roomId,
         participantId,
@@ -181,7 +181,8 @@ export async function POST(req) {
       );
     }
 
-    if (!text || text.trim() === "") {
+    if (!text || text.trim() === "" || text.length < 10) {
+      console.log("text irrelevant: ",text);
       return NextResponse.json({
         success: true,
         text: "",

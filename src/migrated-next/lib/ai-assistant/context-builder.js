@@ -123,30 +123,6 @@ function scoreChunkByTokens(chunk, queryTokens) {
 // 3. PARTICIPANT NAME RESOLUTION
 // =============================================
 
-/**
- * Get participant name mapping from meeting schemas
- */
-// lib/ai-assistant/context-builder.js
-
-// =============================================
-// 3. PARTICIPANT NAME RESOLUTION
-// =============================================
-
-/**
- * Get participant name mapping from meeting schemas
- * Handles both Enterprise and Normal users
- */
-// lib/ai-assistant/context-builder.js
-
-// =============================================
-// 3. PARTICIPANT NAME RESOLUTION
-// =============================================
-
-/**
- * Get participant name mapping from meeting schemas
- * Handles both Enterprise and Normal users
- * Optimized: Only checks Enterprise if not found in General
- */
 async function getParticipantNameMapping(roomId) {
   console.log('📋 [PARTICIPANT MAPPING] Building participant name map...');
   console.log(`  Room ID: ${roomId}`);
@@ -155,9 +131,7 @@ async function getParticipantNameMapping(roomId) {
   const userIdsToLookup = new Set();
   let meetingFound = false;
 
-  // =============================================
   // Step 1: Check General Meeting schema FIRST
-  // =============================================
   try {
     console.log('  🔍 Checking General Meeting schema...');
     const meeting = await Meeting.findOne({ meetingId: roomId })
@@ -169,7 +143,6 @@ async function getParticipantNameMapping(roomId) {
       console.log(`  ✅ Found ${meeting.participants.length} participants in General Meeting`);
       
       meeting.participants.forEach(p => {
-        // Store the name directly if available
         if (p.userId) {
           const userId = p.userId.toString();
           const name = p.name || p.email || userId;
@@ -177,7 +150,6 @@ async function getParticipantNameMapping(roomId) {
           userIdsToLookup.add(userId);
           console.log(`    📌 ${userId} → ${name} (from General Meeting)`);
         }
-        // Also store by email for email-based matching
         if (p.email) {
           nameMap[p.email] = p.name || p.email;
         }
@@ -189,9 +161,7 @@ async function getParticipantNameMapping(roomId) {
     console.log('  ⚠️ Error fetching General Meeting:', error.message);
   }
 
-  // =============================================
   // Step 2: ONLY check Enterprise Meeting if NOT found in General
-  // =============================================
   if (!meetingFound) {
     console.log('  🔍 General Meeting not found, checking Enterprise Meeting schema...');
     
@@ -202,17 +172,14 @@ async function getParticipantNameMapping(roomId) {
       if (enterpriseMeeting) {
         console.log(`  ✅ Found Enterprise Meeting`);
         
-        // Get all participant IDs from the meeting
         const allParticipantIds = new Set();
         
-        // Add hostUserId if exists
         if (enterpriseMeeting.hostUserId) {
           const hostId = enterpriseMeeting.hostUserId.toString();
           allParticipantIds.add(hostId);
           userIdsToLookup.add(hostId);
         }
         
-        // Add participantMemberIds
         if (enterpriseMeeting.participantMemberIds && enterpriseMeeting.participantMemberIds.length > 0) {
           enterpriseMeeting.participantMemberIds.forEach(memberId => {
             const memberIdStr = memberId.toString();
@@ -222,17 +189,16 @@ async function getParticipantNameMapping(roomId) {
         
         console.log(`  📊 Found ${allParticipantIds.size} participant IDs in Enterprise Meeting`);
         
-        // Now look up names from both EnterpriseProfile and Profile
         if (allParticipantIds.size > 0) {
           const participantIds = Array.from(allParticipantIds);
           
-          // Step 2a: Try to find in EnterpriseProfile (for enterprise users)
+          // Try EnterpriseProfile
           try {
             const EnterpriseProfile = (await import('../../app/models/EnterpriseProfile.model.js')).default;
             const enterpriseMembers = await EnterpriseProfile.find({
               $or: [
-                { _id: { $in: participantIds } }, // Match by member ID
-                { userId: { $in: participantIds } } // Match by user ID
+                { _id: { $in: participantIds } },
+                { userId: { $in: participantIds } }
               ]
             }).select('userId name email _id').lean();
             
@@ -241,14 +207,14 @@ async function getParticipantNameMapping(roomId) {
                 const memberId = member._id.toString();
                 const name = member.name || member.email || memberId;
                 nameMap[memberId] = name;
-                console.log(`    📌 ${memberId} → ${name} (from EnterpriseProfile as member)`);
+                console.log(`    📌 ${memberId} → ${name} (from EnterpriseProfile)`);
               }
               if (member.userId) {
                 const userId = member.userId.toString();
                 const name = member.name || member.email || userId;
                 nameMap[userId] = name;
                 userIdsToLookup.add(userId);
-                console.log(`    📌 ${userId} → ${name} (from EnterpriseProfile as user)`);
+                console.log(`    📌 ${userId} → ${name} (from EnterpriseProfile)`);
               }
               if (member.email) {
                 nameMap[member.email] = member.name || member.email;
@@ -258,7 +224,7 @@ async function getParticipantNameMapping(roomId) {
             console.log('  ⚠️ Could not fetch EnterpriseProfile names:', error.message);
           }
           
-          // Step 2b: Try to find in Profile (for normal users)
+          // Try Profile
           try {
             const Profile = (await import('../../app/models/Profile.model.js')).default;
             const normalUsers = await Profile.find({
@@ -289,9 +255,7 @@ async function getParticipantNameMapping(roomId) {
     console.log('  ✅ Using General Meeting data (skipping Enterprise Meeting check)');
   }
 
-  // =============================================
   // Step 3: Fallback - Use LiveAssist transcripts
-  // =============================================
   if (Object.keys(nameMap).length === 0) {
     console.log('  🔍 No names from meetings, falling back to transcripts...');
     try {
@@ -328,10 +292,7 @@ async function getParticipantNameMapping(roomId) {
 }
 
 /**
- * Identify who the question is directed to
- */
-/**
- * Identify who the question is directed to
+ * Identify who the question is directed to - IMPROVED
  */
 async function identifyTargetUser(queryText, roomId, currentUserId) {
   console.log('🎯 [TARGET IDENTIFICATION] Identifying who should answer...');
@@ -342,7 +303,6 @@ async function identifyTargetUser(queryText, roomId, currentUserId) {
   const nameMap = await getParticipantNameMapping(roomId);
   console.log(`  📊 Participants found:`, Object.keys(nameMap).length);
 
-  // If we have very few participants, log them for debugging
   if (Object.keys(nameMap).length > 0) {
     console.log(`  👥 Participant list:`);
     Object.entries(nameMap).forEach(([id, name]) => {
@@ -350,90 +310,52 @@ async function identifyTargetUser(queryText, roomId, currentUserId) {
     });
   }
 
-  // Extract names from the query
   const queryLower = queryText.toLowerCase();
 
-  // Check for name mentions
+  // PRIORITY 1: Check for name mentions
   for (const [userId, userName] of Object.entries(nameMap)) {
     if (!userName || userName === userId) continue;
-    if (userId === currentUserId) continue; // Skip current user
+    if (userId === currentUserId) continue;
     
     const nameLower = userName.toLowerCase();
     const firstName = nameLower.split(' ')[0];
-    const lastName = nameLower.split(' ').slice(1).join(' ');
     
-    // Check for various name patterns including Mr., Ms., Dr., etc.
     const patterns = [
-      // With titles
-      `mr. ${nameLower}`,
-      `mr ${nameLower}`,
-      `mrs. ${nameLower}`,
-      `mrs ${nameLower}`,
-      `ms. ${nameLower}`,
-      `ms ${nameLower}`,
-      `dr. ${nameLower}`,
-      `dr ${nameLower}`,
-      `prof. ${nameLower}`,
-      `prof ${nameLower}`,
-      `sir ${nameLower}`,
-      `madam ${nameLower}`,
-      
-      // First name with punctuation
-      ` ${firstName} `,
-      ` ${firstName},`,
-      ` ${firstName}.`,
-      ` ${firstName}?`,
-      ` ${firstName}!`,
-      `${firstName}?`,
-      `${firstName}!`,
-      
-      // Full name with punctuation
-      ` ${nameLower} `,
-      ` ${nameLower},`,
-      ` ${nameLower}.`,
-      ` ${nameLower}?`,
-      ` ${nameLower}!`,
-      `${nameLower}?`,
-      `${nameLower}!`,
-      
-      // Name at start of sentence
-      `^${firstName}`,
-      `^${nameLower}`,
+      `mr. ${nameLower}`, `mr ${nameLower}`,
+      `mrs. ${nameLower}`, `mrs ${nameLower}`,
+      `ms. ${nameLower}`, `ms ${nameLower}`,
+      `dr. ${nameLower}`, `dr ${nameLower}`,
+      `prof. ${nameLower}`, `prof ${nameLower}`,
+      `sir ${nameLower}`, `madam ${nameLower}`,
+      ` ${firstName} `, ` ${firstName},`, ` ${firstName}.`,
+      ` ${firstName}?`, ` ${firstName}!`,
+      `${firstName}?`, `${firstName}!`,
+      ` ${nameLower} `, ` ${nameLower},`, ` ${nameLower}.`,
+      ` ${nameLower}?`, ` ${nameLower}!`,
+      `${nameLower}?`, `${nameLower}!`,
+      `^${firstName}`, `^${nameLower}`,
     ];
     
-    // Also check for partial matches (like "Bilal" in "Mr. Bilal")
     for (const pattern of patterns) {
       if (queryLower.includes(pattern) || queryLower.match(new RegExp(pattern, 'i'))) {
-        console.log(`  ✅ Target identified: "${userName}" (ID: ${userId}) via pattern "${pattern.trim()}"`);
+        console.log(`  ✅ Target identified: "${userName}" (ID: ${userId}) via name mention`);
         return userId;
       }
     }
     
-    // Check if the name appears anywhere in the query
     if (queryLower.includes(nameLower) || queryLower.includes(firstName)) {
       console.log(`  ✅ Target identified: "${userName}" (ID: ${userId}) via name mention`);
       return userId;
     }
   }
 
-  // If no name mentioned, check if it's a direct question
+  // PRIORITY 2: Check if it's a question directed to anyone
   const questionPatterns = [
-    /can you/i,
-    /do you/i,
-    /could you/i,
-    /would you/i,
-    /are you/i,
-    /tell me/i,
-    /explain/i,
-    /what do you/i,
-    /how do you/i,
-    /where do you/i,
-    /when do you/i,
-    /why do you/i,
-    /who are you/i,
-    /can anyone/i,
-    /does anyone/i,
-    /is there anyone/i,
+    /can you/i, /do you/i, /could you/i, /would you/i,
+    /are you/i, /tell me/i, /explain/i, /what do you/i,
+    /how do you/i, /where do you/i, /when do you/i,
+    /why do you/i, /who are you/i, /can anyone/i,
+    /does anyone/i, /is there anyone/i,
   ];
 
   const isDirectQuestion = questionPatterns.some(pattern => pattern.test(queryText));
@@ -457,7 +379,7 @@ async function identifyTargetUser(queryText, roomId, currentUserId) {
       return targetId;
     }
     
-    // If no recent speaker, try to find any participant with chunks
+    // If no recent speaker, find any participant with chunks
     const usersWithChunks = await BrainChunk.distinct('user_id');
     const availableTargets = Object.keys(nameMap).filter(id => 
       usersWithChunks.includes(id) && id !== currentUserId
@@ -471,8 +393,21 @@ async function identifyTargetUser(queryText, roomId, currentUserId) {
     }
   }
 
-  // Default: return the current user
-  console.log(`  ⚠️ No specific target identified, using fallback: ${currentUserId}`);
+  // PRIORITY 3: Check if any participant has chunks (anyone who can answer)
+  const usersWithChunks = await BrainChunk.distinct('user_id');
+  const availableTargets = Object.keys(nameMap).filter(id => 
+    usersWithChunks.includes(id) && id !== currentUserId
+  );
+  
+  if (availableTargets.length > 0) {
+    const targetId = availableTargets[0];
+    const targetName = nameMap[targetId] || targetId;
+    console.log(`  ✅ Target identified as participant with knowledge: ${targetName} (${targetId})`);
+    return targetId;
+  }
+
+  // PRIORITY 4: LAST RESORT - Use speaker (but only if no other option)
+  console.log(`  ⚠️ No suitable target found, using speaker as last resort: ${currentUserId}`);
   return currentUserId;
 }
 
@@ -480,9 +415,6 @@ async function identifyTargetUser(queryText, roomId, currentUserId) {
 // 4. RETRIEVAL - MULTI-USER
 // =============================================
 
-/**
- * Retrieve brain chunks from multiple users
- */
 async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = BRAIN_TOP_K) {
   console.log('\n📚 [BRAIN RETRIEVAL] Multi-User Starting...');
   console.log(`👤 Current User (speaker): ${userId}`);
@@ -494,7 +426,7 @@ async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = B
     return [];
   }
 
-  // Step 1: Identify who should answer the question
+  // Step 1: Identify target user
   const targetUserId = await identifyTargetUser(queryText, roomId, userId);
   console.log(`🎯 Target User (who has knowledge): ${targetUserId}`);
 
@@ -505,18 +437,13 @@ async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = B
   // Step 3: Build list of users to search
   let userIdsToSearch = [];
 
-  // Always include the target user
+  // ALWAYS include the target user
   userIdsToSearch.push(targetUserId);
 
-  // If target user has no chunks, include all users who have chunks
-  if (!usersWithChunks.includes(targetUserId)) {
-    console.log(`⚠️ Target user has no chunks, checking all users with chunks...`);
+  // If target user is the speaker (last resort), include ALL users with chunks
+  if (targetUserId === userId) {
+    console.log(`⚠️ Using speaker as fallback, including all users with chunks...`);
     userIdsToSearch = [...userIdsToSearch, ...usersWithChunks];
-  }
-
-  // Also include the current user (speaker) in case they have relevant chunks
-  if (!userIdsToSearch.includes(userId) && userId !== targetUserId) {
-    userIdsToSearch.push(userId);
   }
 
   // Remove duplicates
@@ -524,8 +451,6 @@ async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = B
   console.log(`🔍 Searching chunks from users: ${userIdsToSearch.join(', ')}`);
 
   // Step 4: Fetch chunks
-  console.log(`🔎 Fetching chunks for users...`);
-
   const allChunks = await BrainChunk.find({
     user_id: { $in: userIdsToSearch }
   })
@@ -540,7 +465,6 @@ async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = B
     return [];
   }
 
-  // Log chunks by user
   const chunksByUser = allChunks.reduce((acc, chunk) => {
     acc[chunk.user_id] = (acc[chunk.user_id] || 0) + 1;
     return acc;
@@ -576,6 +500,7 @@ async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = B
         _topicMatch: hasTopicMatch,
         _detectedTopics: detectedTopics,
         _isTargetUser: chunk.user_id === targetUserId,
+        _isSpeaker: chunk.user_id === userId,
       };
     })
     .filter((chunk) => chunk._score >= BRAIN_MIN_RELEVANCE)
@@ -589,10 +514,9 @@ async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = B
 
   console.log(`✅ [BRAIN RETRIEVAL] ${scoredChunks.length} chunks selected`);
 
-  // Log selected chunks
   scoredChunks.forEach((chunk, i) => {
     console.log(`\n  🏆 Chunk ${i + 1}:`);
-    console.log(`     User: ${chunk.user_id} ${chunk._isTargetUser ? '🎯 (Target)' : ''}`);
+    console.log(`     User: ${chunk.user_id} ${chunk._isTargetUser ? '🎯 (Target)' : ''} ${chunk._isSpeaker ? '🗣️ (Speaker)' : ''}`);
     console.log(`     Topic: ${chunk.topic || 'general'}`);
     console.log(`     Score: ${(chunk._score * 100).toFixed(1)}%`);
     console.log(`     File: ${chunk.file_name}`);
@@ -600,38 +524,8 @@ async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = B
   });
 
   if (scoredChunks.length === 0) {
-    console.log("⚠️ [BRAIN RETRIEVAL] No highly relevant chunks found, trying fallback...");
-    const fallbackChunks = allChunks
-      .map((chunk) => ({
-        ...chunk,
-        _score: scoreChunkByTokens(chunk, queryTokens),
-        _topicMatch: false,
-        _isTargetUser: chunk.user_id === targetUserId,
-      }))
-      .filter((chunk) => chunk._score >= 0.15)
-      .sort((a, b) => {
-        if (a._isTargetUser && !b._isTargetUser) return -1;
-        if (!a._isTargetUser && b._isTargetUser) return 1;
-        return b._score - a._score;
-      })
-      .slice(0, Math.min(topK, 2));
-
-    console.log(`🔄 [BRAIN RETRIEVAL] Fallback found ${fallbackChunks.length} chunks`);
-
-    if (fallbackChunks.length > 0) {
-      return fallbackChunks.map((chunk) => ({
-        fileId: chunk.file_id,
-        fileName: chunk.file_name,
-        text: String(chunk.text || "").slice(0, BRAIN_MAX_TEXT_CHARS),
-        score: chunk._score,
-        topicMatch: chunk._topicMatch || false,
-        chunkIndex: chunk.chunk_index,
-        topic: chunk.topic || "general",
-        topicHeader: chunk.topic_header || "",
-        userId: chunk.user_id,
-        isTargetUser: chunk._isTargetUser,
-      }));
-    }
+    console.log("⚠️ [BRAIN RETRIEVAL] No relevant chunks found");
+    return [];
   }
 
   const result = scoredChunks.map((chunk) => ({
@@ -646,6 +540,7 @@ async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = B
     topicHeader: chunk.topic_header || "",
     userId: chunk.user_id,
     isTargetUser: chunk._isTargetUser,
+    isSpeaker: chunk._isSpeaker,
   }));
 
   console.log(`✅ [BRAIN RETRIEVAL] Returning ${result.length} chunks\n`);
@@ -659,8 +554,8 @@ async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = B
 function getPriorityPolicy() {
   return {
     order: [
-      "1_questionnaire_profile",
-      "2_brain_files_relevant",
+      "1_target_user_questionnaire",  // Changed: Target user's profile
+      "2_brain_files_relevant",       // Target user's chunks
       "3_session_memory",
       "4_recent_transcripts",
     ],
@@ -685,7 +580,7 @@ function formatQuestionnaire(profile) {
   });
 
   return [
-    `=== USER PROFILE (PRIMARY CONTEXT) ===`,
+    `=== TARGET USER PROFILE (PRIMARY CONTEXT) ===`,
     `Name: ${profile.name || ""}`,
     `Role: ${profile.role || ""}`,
     `Industry: ${profile.industry || ""}`,
@@ -714,7 +609,7 @@ function formatBrainChunks(chunks) {
   return chunks
     .map(
       (item, index) =>
-        `[${index + 1}] USER: ${item.userId || 'unknown'} ${item.isTargetUser ? '🎯 (Knowledge Holder)' : ''}\n` +
+        `[${index + 1}] USER: ${item.userId || 'unknown'} ${item.isTargetUser ? '🎯 (Target)' : ''} ${item.isSpeaker ? '🗣️ (Speaker)' : ''}\n` +
         `    TOPIC: ${item.topic || item.detectedTopics?.join(", ") || "General"}\n` +
         `    FILE: ${item.fileName}\n` +
         `    RELEVANCE: ${(item.score * 100).toFixed(1)}%\n` +
@@ -750,7 +645,7 @@ function formatTranscripts(transcripts) {
 }
 
 // =============================================
-// 7. MAIN CONTEXT BUILDER
+// 7. MAIN CONTEXT BUILDER - UPDATED
 // =============================================
 
 export async function buildAssistContext({
@@ -786,18 +681,23 @@ export async function buildAssistContext({
     };
   }
 
-  console.log('\n📊 [CONTEXT BUILDER] Fetching data...');
+  // Step 1: Identify target user FIRST
+  const targetUserId = await identifyTargetUser(queryText, roomId, userId);
+  console.log(`🎯 Target User ID: ${targetUserId}`);
 
-  // Fetch all context data in parallel
+  console.log('\n📊 [CONTEXT BUILDER] Fetching data for target user...');
+
+  // Fetch all context data for TARGET USER
   const [
-    profile,
+    targetProfile,
     recentTranscripts,
     recentMemory,
     retrievedChunks,
   ] = await Promise.all([
+    // Fetch TARGET USER's profile (not speaker)
     (async () => {
-      console.log('  🔍 Fetching profile for current user...');
-      const result = await HoloAssistQuestionnaire.findOne({ user_id: userId }).lean();
+      console.log(`  🔍 Fetching profile for target user: ${targetUserId}...`);
+      const result = await HoloAssistQuestionnaire.findOne({ user_id: targetUserId }).lean();
       console.log(`  ✅ Profile ${result ? 'found' : 'not found'}`);
       return result;
     })(),
@@ -813,9 +713,9 @@ export async function buildAssistContext({
       return result;
     })(),
     (async () => {
-      console.log('  🔍 Fetching session memory...');
-      const result = userId && sessionId
-        ? await AssistSessionMemory.find({ user_id: userId, session_id: sessionId })
+      console.log('  🔍 Fetching session memory for target user...');
+      const result = targetUserId && sessionId
+        ? await AssistSessionMemory.find({ user_id: targetUserId, session_id: sessionId })
             .sort({ createdAt: -1 })
             .limit(15)
             .lean()
@@ -824,19 +724,20 @@ export async function buildAssistContext({
       return result;
     })(),
     (async () => {
-      console.log('  🔍 Retrieving brain chunks (multi-user)...');
+      console.log('  🔍 Retrieving brain chunks for target user...');
       const result = await retrieveBrainContextMultiUser(userId, queryText, roomId, BRAIN_TOP_K);
-      console.log(`  ✅ Retrieved ${result.length} chunks from relevant users`);
+      console.log(`  ✅ Retrieved ${result.length} chunks`);
       return result;
     })(),
   ]);
 
   // Build the context object
   const context = {
-    userId,
+    userId: targetUserId, // Use TARGET user as the primary user
+    speakerUserId: userId, // Keep track of who spoke
     roomId,
     sessionId,
-    profile,
+    profile: targetProfile, // TARGET user's profile
     retrievedChunks,
     recentTranscripts,
     recentMemory,
@@ -844,19 +745,19 @@ export async function buildAssistContext({
     queryText,
 
     // Formatted texts for prompt building
-    profileText: formatQuestionnaire(profile),
+    profileText: formatQuestionnaire(targetProfile),
     brainChunksText: formatBrainChunks(retrievedChunks),
     memoryText: formatSessionMemory(recentMemory),
     transcriptsText: formatTranscripts(recentTranscripts),
   };
 
   console.log('\n📊 [CONTEXT BUILDER] Context Summary:');
-  console.log(`  ✅ Profile: ${profile ? 'Found' : 'Not found'}`);
+  console.log(`  ✅ Target User: ${targetUserId}`);
+  console.log(`  ✅ Profile: ${targetProfile ? 'Found' : 'Not found'}`);
   console.log(`  ✅ Brain Chunks: ${retrievedChunks.length}`);
   console.log(`  ✅ Session Memory: ${recentMemory.length}`);
   console.log(`  ✅ Transcripts: ${recentTranscripts.length}`);
 
-  // Log the actual context that will be sent to Claude
   console.log('\n📝 [CONTEXT BUILDER] Final Context Prompt Preview:');
   console.log('─'.repeat(80));
   console.log(buildContextPrompt(context).slice(0, 500) + '...');
@@ -868,7 +769,7 @@ export async function buildAssistContext({
 }
 
 // =============================================
-// 8. PROMPT BUILDER
+// 8. PROMPT BUILDER - UPDATED WITH FILTERS
 // =============================================
 
 export function buildContextPrompt(context) {
@@ -882,7 +783,7 @@ export function buildContextPrompt(context) {
 SYSTEM CONTEXT PRIORITY (Strict Order):
 ${priorityOrder}
 
---- PRIORITY 1: USER PROFILE & COMMUNICATION STYLE ---
+--- PRIORITY 1: TARGET USER PROFILE & COMMUNICATION STYLE ---
 ${context.profileText || "Not available"}
 
 --- PRIORITY 2: RELEVANT BRAIN KNOWLEDGE ---
@@ -895,11 +796,18 @@ ${context.memoryText || "No session history"}
 ${context.transcriptsText || "No meeting context"}
 
 POLICY NOTES:
-- Always prioritize user profile for tone, goals, and communication style
+- ALWAYS use the target user's profile for tone, goals, and communication style
 - Use brain knowledge as primary source for content and expertise
-- Session memory only for continuity (avoid repeating previous suggestions)
-- Meeting transcripts for understanding current conversation flow
-- If knowledge conflicts, user profile and brain knowledge take precedence
+- ONLY provide answers that are directly relevant to the question
+- If you don't have relevant information, say "I don't have that information" - DO NOT make up answers
+- DO NOT generate generic responses like "I'm ready to assist" or "What is your goal"
+- Focus on providing specific, actionable information from the brain files
+
+CRITICAL RULES:
+- Never include "I don't have" or "I cannot" type responses unless truly necessary
+- Never include "I'm here to help" or similar generic statements
+- If no relevant context is found, return an empty response (will be filtered out)
+- ONLY respond when you have specific information from the brain files
 
 CURRENT QUERY: "${context.queryText || ""}"
 `;
