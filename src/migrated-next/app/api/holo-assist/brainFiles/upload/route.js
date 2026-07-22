@@ -153,9 +153,22 @@ export async function GET(req) {
       id: session._id.toString(),
     }));
 
+      const totalSessions = sessions.length;
+  const avgCards = totalSessions
+    ? Math.round(
+        sessions.reduce((acc, session) => acc + (session.cards_used_pct || 0), 0) /
+          totalSessions,
+      )
+    : 0;
+  const totalRecoveries = sessions.reduce(
+    (acc, session) => acc + (session.recoveries || 0),
+    0,
+  );
     // Calculate stats
     const stats = {
       sessions: sessions.length,
+      cards: avgCards,
+      recoveries: totalRecoveries,
       files: files.length,
       processedFiles: files.filter(f => f.ingestion_status === 'ready').length,
       pendingFiles: files.filter(f => f.ingestion_status === 'pending').length,
