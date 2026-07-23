@@ -170,7 +170,7 @@ export const uploadBrainTrainingFile = async (req, res) => {
     size: file.size,
     extractedText,
     status: extractedText ? "ready" : "failed",
-    parseError: extractedText ? "" : "Only text, csv, json, and markdown files are parsed right now",
+    parseError: extractedText ? "" : "Only text, csv, json, markdown, PDF, XLSX, and DOCX files are parsed right now",
     flagWordCount: words.filter((word) => word.type === "flag").length,
     permittedWordCount: words.filter((word) => word.type === "permitted").length,
   });

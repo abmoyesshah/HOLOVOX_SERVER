@@ -19,9 +19,9 @@ const stripXmlTags = (value) => decodeXmlEntities(String(value || "").replace(/<
 const isPdfFile = (file) =>
   file?.mimetype === "application/pdf" || /\.pdf$/i.test(file?.originalname || "");
 
-const isXlsxFile = (file) =>
-  file?.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-  /\.xlsx$/i.test(file?.originalname || "");
+const isDocxFile = (file) =>
+  file?.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+  /\.docx$/i.test(file?.originalname || "");
 
 const extractTextFromPdf = (buffer) =>
   new Promise((resolve, reject) => {
@@ -116,6 +116,22 @@ const extractTextFromXlsx = (buffer) => {
 
   return chunks.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 };
+const extractTextFromDocx = (buffer) => {
+  const entries = readZipEntries(buffer);
+  const documentXml = entries.get("word/document.xml");
+  if (!documentXml) return "";
+
+  const xml = documentXml.toString("utf8");
+  const paragraphs = xml.split(/<\/w:p>/);
+
+  const lines = paragraphs.map((paragraph) => {
+    const textNodes = [...paragraph.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)]
+      .map((match) => decodeXmlEntities(match[1]));
+    return textNodes.join("");
+  });
+
+  return lines.filter(Boolean).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+};
 
 export const extractTextFromUpload = async (file) => {
   if (!file?.buffer) return "";
@@ -128,6 +144,8 @@ export const extractTextFromUpload = async (file) => {
   if (textLike) return file.buffer.toString("utf8");
   if (isPdfFile(file)) return extractTextFromPdf(file.buffer);
   if (isXlsxFile(file)) return extractTextFromXlsx(file.buffer);
+  if (isDocxFile(file)) return extractTextFromDocx(file.buffer);
+
 
   return "";
 };
