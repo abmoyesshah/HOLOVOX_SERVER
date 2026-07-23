@@ -264,6 +264,7 @@ export const getEnterpriseFlags = async (req, res) => {
   if (actor.role === "rep") query.flaggedMemberId = actor.id;
   const flags = await UserFlag.find(query)
     .populate("flaggedMemberId", "fullName email role parentId")
+    .populate("speakerMemberId", "fullName email role parentId")
     .populate("flagWordId", "word type severity")
     .sort({ createdAt: -1 })
     .lean();
@@ -309,6 +310,7 @@ export const updateEnterpriseFlag = async (req, res) => {
   }
   await flag.save();
   await flag.populate("flaggedMemberId", "fullName email role parentId");
+  await flag.populate("speakerMemberId", "fullName email role parentId");
   await flag.populate("flagWordId", "word type severity");
   res.status(200).json({ success: true, data: flag });
 };
