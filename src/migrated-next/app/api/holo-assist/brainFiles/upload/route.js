@@ -6,6 +6,8 @@ import DashboardSession from "../../../../../app/models/DashboardSession.model.j
 import { processBrainFile } from "../../../../api/holo-assist/brain-chunking.service.js";
 import { resolveRequestUserId } from "../../../../../lib/auth-user.js";
 import { getGridFSBucket } from "../../../../../lib/gridfs.js";
+import LiveAssist from "../../../../models/LiveAssist.model.js";
+import SuggestionCard from "../../../../models/SuggesionCards.model.js";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 minutes for large files
@@ -123,17 +125,28 @@ export async function GET(req) {
     console.log(`📊 Fetching dashboard data for user: ${userId}`);
 
     // Fetch both data in parallel for better performance
-    const [files, sessions] = await Promise.all([
-      // Fetch brain files
+    const [files, liveAssistDistinctData, suggestionCards, liveAssistData] = await Promise.all([
+      // 1. Fetch brain files
       BrainFile.find({ user_id: userId })
         .sort({ createdAt: -1 })
         .lean(),
       
-      // Fetch dashboard sessions
-      DashboardSession.find({ user_id: userId })
-        .sort({ session_date: -1, createdAt: -1 })
-        .lean()
+      // 2. Fetch all LiveAssist entries (suggestion cards generated during meetings)
+       LiveAssist.distinct("roomId", { participantId: userId }),
+      
+      // 3. Fetch all SuggestionCards (cards clicked/saved by user)
+      SuggestionCard.find({ userId })
+        .sort({ createdAt: -1 })
+        .lean(),
+
+      LiveAssist.find({participantId: userId})
     ]);
+    const totalCardsGenerated = liveAssistData.length;
+    const totalCardsClicked = suggestionCards.length;
+
+      const cardPct = totalCardsGenerated > 0 
+      ? Math.round((totalCardsClicked / totalCardsGenerated) * 100) 
+      : 0;
 
     // Format files response
     const formattedFiles = files.map(f => ({
@@ -187,8 +200,8 @@ export async function GET(req) {
       
       // Stats
       stats: {
-        sessions: sessions.length,
-      cards: avgCards,
+        sessions: liveAssistDistinctData.length,
+      cards: cardPct,
       recoveries: totalRecoveries,
         files: files.length,
         processedFiles: files.filter(f => f.ingestion_status === 'ready').length,
