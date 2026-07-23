@@ -7,7 +7,7 @@ export async function POST(req) {
     await connectDB();
 
     const body = await req.json();
-    const { userId, cardId, text, type } = body;
+    const { userId, cardId, text, type, roomId } = body;
 
     // Validate required fields
     if (!userId || !cardId) {
@@ -39,6 +39,7 @@ export async function POST(req) {
     const suggestionCard = await SuggestionCard.create({
       userId,
       cardId,
+      roomId,
       text: text || "",
       type: type || "general",
     });
