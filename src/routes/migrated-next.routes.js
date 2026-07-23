@@ -115,6 +115,7 @@ import * as route33 from "../migrated-next/app/api/user/change-password/route.js
 import * as route34 from "../migrated-next/app/api/enterprise/manager/reps/route.js";
 import * as route35 from "../migrated-next/app/api/enterprise/manager/flags/route.js";
 import * as route36 from "../migrated-next/app/api/holo-assist/brainFiles/upload/route.js";
+import * as route37 from "../migrated-next/app/api/holo-assist/cards/route.js";
 
 const router = express.Router();
 
@@ -156,5 +157,6 @@ registerNextRoute(router, "/api/user/change-password", route33, ["get","post","p
 registerNextRoute(router, "/api/enterprise/manager/reps", route34, ["get","post","put"]);
 registerNextRoute(router, "/api/enterprise/manager/flags", route35, ["get","post","put"]);
 registerNextRoute(router, "/api/holo-assist/brainFiles/upload", route36, ["get","post","put"]);
+registerNextRoute(router, "/api/holo-assist/cards", route37, ["get","post","put"]);
 
 export default router;

@@ -31,6 +31,10 @@ const BrainTrainingFileSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    fileData: {
+      type: Buffer,
+      select: false,
+    },
     status: {
       type: String,
       enum: ["pending", "ready", "failed"],
@@ -48,6 +52,36 @@ const BrainTrainingFileSchema = new mongoose.Schema(
     permittedWordCount: {
       type: Number,
       default: 0,
+    },
+    // Manager -> owner suggestion workflow. Owner-uploaded files default to
+    // "accepted" so they behave exactly as before; manager suggestions start
+    // "pending" and only join the Brain (brainSources) once the owner accepts.
+    reviewStatus: {
+      type: String,
+      enum: ["accepted", "pending", "rejected"],
+      default: "accepted",
+      index: true,
+    },
+    suggestedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    suggestedByName: {
+      type: String,
+      default: "",
+    },
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+    reviewedAt: {
+      type: Date,
+      default: null,
+    },
+    notes: {
+      type: String,
+      default: "",
     },
   },
   { timestamps: true }

@@ -6,6 +6,8 @@ import {
   createFlagWord,
   deleteFlagWord,
   getBrainTrainingFiles,
+  getBrainSuggestions,
+  getBrainSuggestionFile,
   getEnterpriseFlags,
   getEnterpriseMeetingDetail,
   getEnterpriseMeetings,
@@ -13,7 +15,9 @@ import {
   getEnterpriseOverview,
   getFlagWords,
   reparentEnterpriseUser,
+  reviewBrainSuggestion,
   scanEnterpriseTranscript,
+  suggestBrainTrainingFile,
   updateEnterpriseMeeting,
   updateEnterpriseFlag,
   uploadBrainTrainingFile,
@@ -32,6 +36,11 @@ router.patch("/enterprise/users/:id/manager", asyncRoute(reparentEnterpriseUser)
 
 router.get("/enterprise/brain/files", asyncRoute(getBrainTrainingFiles));
 router.post("/enterprise/brain/files", upload.single("file"), asyncRoute(uploadBrainTrainingFile));
+
+router.get("/enterprise/brain/suggestions", asyncRoute(getBrainSuggestions));
+router.post("/enterprise/brain/suggestions", upload.single("file"), asyncRoute(suggestBrainTrainingFile));
+router.get("/enterprise/brain/suggestions/:id/file", asyncRoute(getBrainSuggestionFile));
+router.patch("/enterprise/brain/suggestions/:id", asyncRoute(reviewBrainSuggestion));
 
 router.get("/enterprise/flag-words", asyncRoute(getFlagWords));
 router.post("/enterprise/flag-words", asyncRoute(createFlagWord));
