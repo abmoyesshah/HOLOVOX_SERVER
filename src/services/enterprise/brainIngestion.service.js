@@ -1,6 +1,5 @@
 import zlib from "node:zlib";
-import PDFParser from "pdf2json";
-
+import pdfParse from "pdf-parse/lib/pdf-parse.js";
 const stripListPrefix = (word) =>
   String(word || "").replace(/^\s*\d+[\).:-]\s*/, "").trim();
 
@@ -23,31 +22,34 @@ const isDocxFile = (file) =>
   file?.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
   /\.docx$/i.test(file?.originalname || "");
 
-const extractTextFromPdf = (buffer) =>
-  new Promise((resolve, reject) => {
-    const parser = new PDFParser();
-    const timeout = setTimeout(() => {
-      reject(new Error("PDF parsing timed out"));
-    }, 20000);
+// const extractTextFromPdf = (buffer) =>
+//   new Promise((resolve, reject) => {
+//     const parser = new PDFParser();
+//     const timeout = setTimeout(() => {
+//       reject(new Error("PDF parsing timed out"));
+//     }, 20000);
 
-    parser.on("pdfParser_dataError", (error) => {
-      clearTimeout(timeout);
-      reject(error?.parserError || error || new Error("Failed to parse PDF"));
-    });
+//     parser.on("pdfParser_dataError", (error) => {
+//       clearTimeout(timeout);
+//       reject(error?.parserError || error || new Error("Failed to parse PDF"));
+//     });
 
-    parser.on("pdfParser_dataReady", () => {
-      try {
-        clearTimeout(timeout);
-        resolve(parser.getRawTextContent().replace(/\r/g, "\n"));
-      } catch (error) {
-        clearTimeout(timeout);
-        reject(error);
-      }
-    });
+//     parser.on("pdfParser_dataReady", () => {
+//       try {
+//         clearTimeout(timeout);
+//         resolve(parser.getRawTextContent().replace(/\r/g, "\n"));
+//       } catch (error) {
+//         clearTimeout(timeout);
+//         reject(error);
+//       }
+//     });
 
-    parser.parseBuffer(buffer);
-  });
-
+//     parser.parseBuffer(buffer);
+//   });
+const extractTextFromPdf = async (buffer) => {
+  const data = await pdfParse(buffer);
+  return data.text;
+};
 const readZipEntries = (buffer) => {
   const entries = new Map();
   const eocdSignature = 0x06054b50;
