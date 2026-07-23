@@ -18,6 +18,10 @@ const stripXmlTags = (value) => decodeXmlEntities(String(value || "").replace(/<
 const isPdfFile = (file) =>
   file?.mimetype === "application/pdf" || /\.pdf$/i.test(file?.originalname || "");
 
+const isXlsxFile = (file) =>
+  file?.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+  /\.xlsx$/i.test(file?.originalname || "");
+
 const isDocxFile = (file) =>
   file?.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
   /\.docx$/i.test(file?.originalname || "");
