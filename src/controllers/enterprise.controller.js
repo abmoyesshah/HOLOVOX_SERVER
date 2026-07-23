@@ -405,7 +405,7 @@ export const createEnterpriseCoachingMeeting = async (req, res) => {
   if (!actor) return;
   if (actor.role === "rep") return res.status(403).json({ success: false, error: "Reps cannot schedule coaching meetings" });
 
-  const { flagId, participantMemberIds = [], meetingDate, meetingTitle } = req.body;
+  const { flagId, participantMemberIds = [], participantEmails = [], meetingDate, meetingTitle } = req.body;
   const flagQuery = { organizationId: actor.organization._id };
   if (flagId && isObjectId(flagId)) flagQuery._id = flagId;
   if (actor.role === "manager") flagQuery.managerId = actor.id;
@@ -446,6 +446,16 @@ export const createEnterpriseCoachingMeeting = async (req, res) => {
   const hostEmail = actor.profile?.email || actor.member?.email || "";
   const roomId = coachingMeetingId();
   const time = scheduledAt.toTimeString().slice(0, 5);
+  const memberEmails = new Set(members.map((member) => String(member.email || "").toLowerCase()).filter(Boolean));
+  const guestParticipants = uniqueIds(participantEmails)
+    .map((email) => String(email || "").trim().toLowerCase())
+    .filter((email) => email && !memberEmails.has(email) && email !== String(hostEmail || "").toLowerCase())
+    .map((email) => ({
+      name: email,
+      email,
+      role: "guest",
+      end: false,
+    }));
 
   const meeting = await MeetingModel.create({
     meetingId: roomId,
@@ -467,6 +477,7 @@ export const createEnterpriseCoachingMeeting = async (req, res) => {
           role: "participant",
           end: false,
         })),
+      ...guestParticipants,
     ],
   });
 
