@@ -295,20 +295,6 @@ export const updateEnterpriseFlag = async (req, res) => {
         error: "A coaching meeting must be scheduled before resolving this flag",
       });
     }
-
-    const coachingMeeting = await EnterpriseMeeting.findOne({
-      organizationId: actor.organization._id,
-      meetingId: flag.coachingMeetingId,
-      meetingPurpose: "coaching",
-    }).lean();
-
-    const endedAt = coachingMeeting?.endedAt ? new Date(coachingMeeting.endedAt) : null;
-    if (!coachingMeeting || coachingMeeting.status !== "ended" || !endedAt || endedAt.getTime() > Date.now()) {
-      return res.status(400).json({
-        success: false,
-        error: "This flag can only be resolved after its coaching meeting has ended",
-      });
-    }
   }
 
   flag.status = status;
