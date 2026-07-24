@@ -160,34 +160,34 @@ export async function GET(req) {
       lastIngested: f.last_ingested_at,
     }));
 
-    // Format sessions response
-    const formattedSessions = sessions.map(session => ({
-      ...session,
-      id: session._id.toString(),
-    }));
+  //   // Format sessions response
+  //   const formattedSessions = sessions.map(session => ({
+  //     ...session,
+  //     id: session._id.toString(),
+  //   }));
 
-      const totalSessions = sessions.length;
-  const avgCards = totalSessions
-    ? Math.round(
-        sessions.reduce((acc, session) => acc + (session.cards_used_pct || 0), 0) /
-          totalSessions,
-      )
-    : 0;
-  const totalRecoveries = sessions.reduce(
-    (acc, session) => acc + (session.recoveries || 0),
-    0,
-  );
+  //     const totalSessions = sessions.length;
+  // const avgCards = totalSessions
+  //   ? Math.round(
+  //       sessions.reduce((acc, session) => acc + (session.cards_used_pct || 0), 0) /
+  //         totalSessions,
+  //     )
+  //   : 0;
+  // const totalRecoveries = sessions.reduce(
+  //   (acc, session) => acc + (session.recoveries || 0),
+  //   0,
+  // );
     // Calculate stats
-    const stats = {
+    // const stats = {
       
-      files: files.length,
-      processedFiles: files.filter(f => f.ingestion_status === 'ready').length,
-      pendingFiles: files.filter(f => f.ingestion_status === 'pending').length,
-      failedFiles: files.filter(f => f.ingestion_status === 'failed').length,
-      totalChunks: files.reduce((sum, f) => sum + (f.chunk_count || 0), 0),
-    };
+    //   files: files.length,
+    //   processedFiles: files.filter(f => f.ingestion_status === 'ready').length,
+    //   pendingFiles: files.filter(f => f.ingestion_status === 'pending').length,
+    //   failedFiles: files.filter(f => f.ingestion_status === 'failed').length,
+    //   totalChunks: files.reduce((sum, f) => sum + (f.chunk_count || 0), 0),
+    // };
 
-    console.log(`✅ Found ${files.length} files and ${sessions.length} sessions for user ${userId}`);
+    // console.log(`✅ Found ${files.length} files and ${sessions.length} sessions for user ${userId}`);
 
     return NextResponse.json({
       success: true,
@@ -195,14 +195,11 @@ export async function GET(req) {
       files: formattedFiles,
       sources: formattedFiles, // For backward compatibility
       
-      // Sessions data
-      sessions: formattedSessions.length > 0 ? formattedSessions : getSeedSessions(userId),
-      
       // Stats
       stats: {
         sessions: liveAssistDistinctData.length,
       cards: cardPct,
-      recoveries: totalRecoveries,
+      // recoveries: totalRecoveries,
         files: files.length,
         processedFiles: files.filter(f => f.ingestion_status === 'ready').length,
         pendingFiles: files.filter(f => f.ingestion_status === 'pending').length,
@@ -211,7 +208,7 @@ export async function GET(req) {
       },
       
       // Additional dashboard data (default values)
-      pwr: sessions.length > 0 ? Math.min(sessions.length * 10, 100) : 0,
+      // pwr: sessions.length > 0 ? Math.min(sessions.length * 10, 100) : 0,
       deskQuote: files.length > 0 
         ? `Brain has ${files.length} files loaded with ${stats.totalChunks} chunks ready` 
         : "Feed it files. Watch the Brain charge.",
@@ -219,7 +216,7 @@ export async function GET(req) {
       playbooks: [],
       skills: [],
       journal: [],
-      goal: sessions.length > 0 ? "Continue building your knowledge base" : "Set your first goal.",
+      // goal: sessions.length > 0 ? "Continue building your knowledge base" : "Set your first goal.",
     });
   } catch (error) {
     console.error("❌ Error fetching dashboard data:", error);

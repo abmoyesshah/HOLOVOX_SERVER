@@ -8,7 +8,9 @@ export async function POST(req) {
 
     const body = await req.json();
     const { userId, cardId, text, type, roomId } = body;
-
+    console.log("userId: ",userId)
+    console.log("cardId: ",cardId)
+    // console.log("userId: ",userId)
     // Validate required fields
     if (!userId || !cardId) {
       return NextResponse.json(
