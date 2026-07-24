@@ -104,6 +104,7 @@ import AnalyticsRouter from "./routes/Analytics.routes.js";
 import MigratedNextRouter from "./routes/migrated-next.routes.js";
 import TranscriptRouter from "./routes/transcript.js"; // 👈 Import the new route
 import EnterpriseRouter from "./routes/enterprise.routes.js";
+import MicAudioRouter from "./routes/mic-audio.routes.js";
 
 console.log("✅ All routes imported!"); // 👈 Add this
 // Register routes
@@ -126,5 +127,6 @@ app.use("/api/v1/", meetingLimiter, TokenRouter);
 app.use("/api/v1/", meetingLimiter, MeetingRouter);
 app.use("/api/v1/", meetingLimiter, MeetingMxgRouter);
 app.use("/api/v1/", TranscriptRouter); // 👈 Register the new route
+app.use("/api/v1/", MicAudioRouter);
 
 export default app;
