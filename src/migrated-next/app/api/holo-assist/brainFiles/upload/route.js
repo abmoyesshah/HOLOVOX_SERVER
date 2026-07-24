@@ -141,13 +141,16 @@ export async function GET(req) {
 
       LiveAssist.find({participantId: userId})
     ]);
+    console.log("live assist data: ",liveAssistData)
     const totalCardsGenerated = liveAssistData.length;
     const totalCardsClicked = suggestionCards.length;
+    console.log("totalCardsClicked: ",totalCardsClicked)
+    console.log("totalCardsGenerated: ",totalCardsGenerated)
 
       const cardPct = totalCardsGenerated > 0 
       ? Math.round((totalCardsClicked / totalCardsGenerated) * 100) 
       : 0;
-
+    console.log("card pct: ",cardPct)
     // Format files response
     const formattedFiles = files.map(f => ({
       id: f._id,
