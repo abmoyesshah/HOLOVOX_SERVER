@@ -35,7 +35,10 @@ export const getOverviewPayload = async (actor) => {
 
   const managers = members.filter((member) => member.role === "manager");
   const reps = members.filter((member) => member.role !== "manager");
-  const brainFiles = await BrainTrainingFile.find({ organizationId: actor.organization._id })
+  const brainFiles = await BrainTrainingFile.find({
+    organizationId: actor.organization._id,
+    reviewStatus: { $nin: ["pending", "rejected"] },
+  })
     .sort({ createdAt: -1 })
     .limit(8)
     .lean();
@@ -79,6 +82,7 @@ export const getOverviewPayload = async (actor) => {
       type: file.mimeType || "Training file",
       icon: file.status === "ready" ? "✓" : "!",
       status: file.status,
+      createdAt: file.createdAt,
     })),
     feed: flags.slice(0, 6).map((flag) => ({
       color: flag.severity === "high" ? "var(--mag)" : flag.severity === "medium" ? "var(--amber)" : "var(--hud)",

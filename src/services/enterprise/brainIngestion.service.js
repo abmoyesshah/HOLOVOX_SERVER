@@ -1,6 +1,5 @@
 import zlib from "node:zlib";
-import PDFParser from "pdf2json";
-
+import pdfParse from "pdf-parse/lib/pdf-parse.js";
 const stripListPrefix = (word) =>
   String(word || "").replace(/^\s*\d+[\).:-]\s*/, "").trim();
 
@@ -23,31 +22,38 @@ const isXlsxFile = (file) =>
   file?.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
   /\.xlsx$/i.test(file?.originalname || "");
 
-const extractTextFromPdf = (buffer) =>
-  new Promise((resolve, reject) => {
-    const parser = new PDFParser();
-    const timeout = setTimeout(() => {
-      reject(new Error("PDF parsing timed out"));
-    }, 20000);
+const isDocxFile = (file) =>
+  file?.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+  /\.docx$/i.test(file?.originalname || "");
 
-    parser.on("pdfParser_dataError", (error) => {
-      clearTimeout(timeout);
-      reject(error?.parserError || error || new Error("Failed to parse PDF"));
-    });
+// const extractTextFromPdf = (buffer) =>
+//   new Promise((resolve, reject) => {
+//     const parser = new PDFParser();
+//     const timeout = setTimeout(() => {
+//       reject(new Error("PDF parsing timed out"));
+//     }, 20000);
 
-    parser.on("pdfParser_dataReady", () => {
-      try {
-        clearTimeout(timeout);
-        resolve(parser.getRawTextContent().replace(/\r/g, "\n"));
-      } catch (error) {
-        clearTimeout(timeout);
-        reject(error);
-      }
-    });
+//     parser.on("pdfParser_dataError", (error) => {
+//       clearTimeout(timeout);
+//       reject(error?.parserError || error || new Error("Failed to parse PDF"));
+//     });
 
-    parser.parseBuffer(buffer);
-  });
+//     parser.on("pdfParser_dataReady", () => {
+//       try {
+//         clearTimeout(timeout);
+//         resolve(parser.getRawTextContent().replace(/\r/g, "\n"));
+//       } catch (error) {
+//         clearTimeout(timeout);
+//         reject(error);
+//       }
+//     });
 
+//     parser.parseBuffer(buffer);
+//   });
+const extractTextFromPdf = async (buffer) => {
+  const data = await pdfParse(buffer);
+  return data.text;
+};
 const readZipEntries = (buffer) => {
   const entries = new Map();
   const eocdSignature = 0x06054b50;
@@ -116,6 +122,22 @@ const extractTextFromXlsx = (buffer) => {
 
   return chunks.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 };
+const extractTextFromDocx = (buffer) => {
+  const entries = readZipEntries(buffer);
+  const documentXml = entries.get("word/document.xml");
+  if (!documentXml) return "";
+
+  const xml = documentXml.toString("utf8");
+  const paragraphs = xml.split(/<\/w:p>/);
+
+  const lines = paragraphs.map((paragraph) => {
+    const textNodes = [...paragraph.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)]
+      .map((match) => decodeXmlEntities(match[1]));
+    return textNodes.join("");
+  });
+
+  return lines.filter(Boolean).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+};
 
 export const extractTextFromUpload = async (file) => {
   if (!file?.buffer) return "";
@@ -128,6 +150,8 @@ export const extractTextFromUpload = async (file) => {
   if (textLike) return file.buffer.toString("utf8");
   if (isPdfFile(file)) return extractTextFromPdf(file.buffer);
   if (isXlsxFile(file)) return extractTextFromXlsx(file.buffer);
+  if (isDocxFile(file)) return extractTextFromDocx(file.buffer);
+
 
   return "";
 };

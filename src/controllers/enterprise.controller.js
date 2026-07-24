@@ -170,7 +170,7 @@ export const uploadBrainTrainingFile = async (req, res) => {
     size: file.size,
     extractedText,
     status: extractedText ? "ready" : "failed",
-    parseError: extractedText ? "" : "Only text, csv, json, and markdown files are parsed right now",
+    parseError: extractedText ? "" : "Only text, csv, json, markdown, PDF, XLSX, and DOCX files are parsed right now",
     flagWordCount: words.filter((word) => word.type === "flag").length,
     permittedWordCount: words.filter((word) => word.type === "permitted").length,
   });
@@ -202,8 +202,148 @@ export const uploadBrainTrainingFile = async (req, res) => {
 export const getBrainTrainingFiles = async (req, res) => {
   const actor = await requireEnterpriseActor(req, res);
   if (!actor) return;
-  const files = await BrainTrainingFile.find({ organizationId: actor.organization._id }).sort({ createdAt: -1 }).lean();
+  const files = await BrainTrainingFile.find({
+    organizationId: actor.organization._id,
+    reviewStatus: { $nin: ["pending", "rejected"] },
+  }).sort({ createdAt: -1 }).lean();
   res.status(200).json({ success: true, data: files });
+};
+
+// Manager -> owner "suggest a file for the Company Brain" workflow. Suggested
+// files live in the same BrainTrainingFile collection as owner uploads (so
+// accepting one just flips it into the normal Brain listing), but start life
+// with reviewStatus "pending" and are excluded from brainSources/getBrainTrainingFiles
+// until the owner reviews them.
+export const suggestBrainTrainingFile = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+  if (actor.role !== "manager") {
+    return res.status(403).json({ success: false, error: "Only managers can suggest files to the owner" });
+  }
+
+  const file = req.file;
+  if (!file) return res.status(400).json({ success: false, error: "A file is required" });
+
+  const extractedText = await extractTextFromUpload(file);
+  const words = parseTrainingWords(extractedText);
+  const suggestion = await BrainTrainingFile.create({
+    organizationId: actor.organization._id,
+    uploadedBy: actor.id,
+    originalName: file.originalname,
+    mimeType: file.mimetype,
+    size: file.size,
+    extractedText,
+    fileData: file.buffer,
+    status: extractedText ? "ready" : "failed",
+    parseError: extractedText ? "" : "Only text, csv, json, markdown, PDF, XLSX, and DOCX files are parsed right now",
+    flagWordCount: words.filter((word) => word.type === "flag").length,
+    permittedWordCount: words.filter((word) => word.type === "permitted").length,
+    reviewStatus: "pending",
+    suggestedBy: actor.id,
+    suggestedByName: actor.member?.fullName || "Manager",
+    notes: String(req.body.notes || "").trim(),
+  });
+
+  const data = suggestion.toObject();
+  delete data.fileData;
+  res.status(201).json({ success: true, data });
+};
+
+// GET /enterprise/brain/suggestions
+//  - owner   -> every suggestion in the organization (so they can see the
+//               full review queue, including already-accepted/rejected ones)
+//  - manager -> only their own suggestions, so status updates (accepted/
+//               rejected) are visible back on their dashboard
+//  - rep     -> not part of this workflow
+export const getBrainSuggestions = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+  if (actor.role === "rep") return res.status(200).json({ success: true, data: [] });
+
+  const query = { organizationId: actor.organization._id, suggestedBy: { $ne: null } };
+  if (actor.role === "manager") query.suggestedBy = actor.id;
+
+  const suggestions = await BrainTrainingFile.find(query).sort({ createdAt: -1 }).lean();
+  res.status(200).json({ success: true, data: suggestions });
+};
+
+export const getBrainSuggestionFile = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+
+  const { id } = req.params;
+  if (!isObjectId(id)) return res.status(400).json({ success: false, error: "Invalid suggestion id" });
+
+  const suggestion = await BrainTrainingFile.findOne({
+    _id: id,
+    organizationId: actor.organization._id,
+    suggestedBy: { $ne: null },
+  }).select("+fileData");
+  if (!suggestion || !suggestion.fileData) return res.status(404).json({ success: false, error: "File not found" });
+  if (actor.role !== "owner" && String(suggestion.suggestedBy) !== String(actor.id)) {
+    return res.status(403).json({ success: false, error: "You cannot view this file" });
+  }
+
+  res.set("Content-Type", suggestion.mimeType || "application/octet-stream");
+  res.set("Content-Disposition", `inline; filename="${encodeURIComponent(suggestion.originalName)}"`);
+  res.send(suggestion.fileData);
+};
+
+// PATCH /enterprise/brain/suggestions/:id  { action: "accept" | "reject" }
+// Accepting flips reviewStatus to "accepted" (which makes it show up in
+// brainSources/getBrainTrainingFiles like any owner-uploaded file) and imports
+// its flag/permitted words, mirroring what uploadBrainTrainingFile already
+// does for direct owner uploads.
+export const reviewBrainSuggestion = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+  if (!ensureOwner(actor, res)) return;
+
+  const { id } = req.params;
+  const { action } = req.body;
+  if (!isObjectId(id) || !["accept", "reject"].includes(action)) {
+    return res.status(400).json({ success: false, error: "Valid suggestion id and action (accept/reject) are required" });
+  }
+
+  const suggestion = await BrainTrainingFile.findOne({
+    _id: id,
+    organizationId: actor.organization._id,
+    suggestedBy: { $ne: null },
+  });
+  if (!suggestion) return res.status(404).json({ success: false, error: "Suggestion not found" });
+
+  suggestion.reviewStatus = action === "accept" ? "accepted" : "rejected";
+  suggestion.reviewedBy = actor.id;
+  suggestion.reviewedAt = new Date();
+  await suggestion.save();
+
+  if (action === "accept") {
+    const words = parseTrainingWords(suggestion.extractedText);
+    if (words.length) {
+      await FlagWord.bulkWrite(
+        words.map((word) => ({
+          updateOne: {
+            filter: { organizationId: actor.organization._id, normalizedWord: word.normalizedWord, type: word.type },
+            update: {
+              $set: {
+                word: word.word,
+                severity: word.severity,
+                category: word.category,
+                sourceFileId: suggestion._id,
+                createdBy: actor.id,
+              },
+            },
+            upsert: true,
+          },
+        })),
+        { ordered: false }
+      );
+    }
+  }
+
+  const data = suggestion.toObject();
+  delete data.fileData;
+  res.status(200).json({ success: true, data });
 };
 
 export const getFlagWords = async (req, res) => {
@@ -264,6 +404,7 @@ export const getEnterpriseFlags = async (req, res) => {
   if (actor.role === "rep") query.flaggedMemberId = actor.id;
   const flags = await UserFlag.find(query)
     .populate("flaggedMemberId", "fullName email role parentId")
+    .populate("speakerMemberId", "fullName email role parentId")
     .populate("flagWordId", "word type severity")
     .sort({ createdAt: -1 })
     .lean();
@@ -295,20 +436,6 @@ export const updateEnterpriseFlag = async (req, res) => {
         error: "A coaching meeting must be scheduled before resolving this flag",
       });
     }
-
-    const coachingMeeting = await EnterpriseMeeting.findOne({
-      organizationId: actor.organization._id,
-      meetingId: flag.coachingMeetingId,
-      meetingPurpose: "coaching",
-    }).lean();
-
-    const endedAt = coachingMeeting?.endedAt ? new Date(coachingMeeting.endedAt) : null;
-    if (!coachingMeeting || coachingMeeting.status !== "ended" || !endedAt || endedAt.getTime() > Date.now()) {
-      return res.status(400).json({
-        success: false,
-        error: "This flag can only be resolved after its coaching meeting has ended",
-      });
-    }
   }
 
   flag.status = status;
@@ -323,6 +450,7 @@ export const updateEnterpriseFlag = async (req, res) => {
   }
   await flag.save();
   await flag.populate("flaggedMemberId", "fullName email role parentId");
+  await flag.populate("speakerMemberId", "fullName email role parentId");
   await flag.populate("flagWordId", "word type severity");
   res.status(200).json({ success: true, data: flag });
 };
@@ -405,7 +533,7 @@ export const createEnterpriseCoachingMeeting = async (req, res) => {
   if (!actor) return;
   if (actor.role === "rep") return res.status(403).json({ success: false, error: "Reps cannot schedule coaching meetings" });
 
-  const { flagId, participantMemberIds = [], meetingDate, meetingTitle } = req.body;
+  const { flagId, participantMemberIds = [], participantEmails = [], meetingDate, meetingTitle } = req.body;
   const flagQuery = { organizationId: actor.organization._id };
   if (flagId && isObjectId(flagId)) flagQuery._id = flagId;
   if (actor.role === "manager") flagQuery.managerId = actor.id;
@@ -446,6 +574,16 @@ export const createEnterpriseCoachingMeeting = async (req, res) => {
   const hostEmail = actor.profile?.email || actor.member?.email || "";
   const roomId = coachingMeetingId();
   const time = scheduledAt.toTimeString().slice(0, 5);
+  const memberEmails = new Set(members.map((member) => String(member.email || "").toLowerCase()).filter(Boolean));
+  const guestParticipants = uniqueIds(participantEmails)
+    .map((email) => String(email || "").trim().toLowerCase())
+    .filter((email) => email && !memberEmails.has(email) && email !== String(hostEmail || "").toLowerCase())
+    .map((email) => ({
+      name: email,
+      email,
+      role: "guest",
+      end: false,
+    }));
 
   const meeting = await MeetingModel.create({
     meetingId: roomId,
@@ -467,6 +605,7 @@ export const createEnterpriseCoachingMeeting = async (req, res) => {
           role: "participant",
           end: false,
         })),
+      ...guestParticipants,
     ],
   });
 
