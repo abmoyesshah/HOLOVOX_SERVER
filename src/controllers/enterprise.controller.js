@@ -135,9 +135,11 @@ export const reparentEnterpriseUser = async (req, res) => {
   if (target.role === "manager") {
     if (!ensureOwner(actor, res)) return;
     target.parentId = null;
+  } else if (!managerId) {
+    target.parentId = null;
   } else {
-    if (!managerId || !isObjectId(managerId)) {
-      return res.status(400).json({ success: false, error: "managerId is required for reps" });
+    if (!isObjectId(managerId)) {
+      return res.status(400).json({ success: false, error: "Invalid manager id" });
     }
     const manager = await EnterpriseProfile.findOne({
       _id: managerId,
@@ -150,6 +152,32 @@ export const reparentEnterpriseUser = async (req, res) => {
 
   await target.save();
   res.status(200).json({ success: true, data: { id: target._id, parentId: target.parentId } });
+};
+
+export const deleteEnterpriseUser = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+
+  const { id } = req.params;
+  if (!isObjectId(id)) return res.status(400).json({ success: false, error: "Invalid user id" });
+
+  const target = await EnterpriseProfile.findOne({ _id: id, organizationId: actor.organization._id });
+  if (!target) return res.status(404).json({ success: false, error: "Enterprise user not found" });
+  if (!canManageMember(actor, target)) return res.status(403).json({ success: false, error: "You cannot manage this user" });
+
+  let reassignedReps = 0;
+  if (target.role === "manager") {
+    if (!ensureOwner(actor, res)) return;
+    const result = await EnterpriseProfile.updateMany(
+      { organizationId: actor.organization._id, parentId: target._id },
+      { $set: { parentId: null } },
+    );
+    reassignedReps = result.modifiedCount || 0;
+  }
+
+  await EnterpriseProfile.deleteOne({ _id: target._id });
+
+  res.status(200).json({ success: true, data: { id: target._id, reassignedReps } });
 };
 
 export const uploadBrainTrainingFile = async (req, res) => {

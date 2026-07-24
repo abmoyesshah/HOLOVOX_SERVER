@@ -4,6 +4,7 @@ import {
   createEnterpriseUser,
   createEnterpriseCoachingMeeting,
   createFlagWord,
+  deleteEnterpriseUser,
   deleteFlagWord,
   getBrainTrainingFiles,
   getBrainSuggestions,
@@ -33,6 +34,7 @@ router.get("/enterprise/overview", asyncRoute(getEnterpriseOverview));
 router.get("/enterprise/org-tree", asyncRoute(getEnterpriseOrgTree));
 router.post("/enterprise/users", asyncRoute(createEnterpriseUser));
 router.patch("/enterprise/users/:id/manager", asyncRoute(reparentEnterpriseUser));
+router.delete("/enterprise/users/:id", asyncRoute(deleteEnterpriseUser));
 
 router.get("/enterprise/brain/files", asyncRoute(getBrainTrainingFiles));
 router.post("/enterprise/brain/files", upload.single("file"), asyncRoute(uploadBrainTrainingFile));
