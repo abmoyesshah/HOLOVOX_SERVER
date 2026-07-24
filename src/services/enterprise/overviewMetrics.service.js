@@ -82,6 +82,7 @@ export const getOverviewPayload = async (actor) => {
       type: file.mimeType || "Training file",
       icon: file.status === "ready" ? "✓" : "!",
       status: file.status,
+      createdAt: file.createdAt,
     })),
     feed: flags.slice(0, 6).map((flag) => ({
       color: flag.severity === "high" ? "var(--mag)" : flag.severity === "medium" ? "var(--amber)" : "var(--hud)",
