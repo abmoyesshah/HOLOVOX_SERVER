@@ -6,6 +6,8 @@ import DashboardSession from "../../../../../app/models/DashboardSession.model.j
 import { processBrainFile } from "../../../../api/holo-assist/brain-chunking.service.js";
 import { resolveRequestUserId } from "../../../../../lib/auth-user.js";
 import { getGridFSBucket } from "../../../../../lib/gridfs.js";
+import LiveAssist from "../../../../models/LiveAssist.model.js";
+import SuggestionCard from "../../../../models/SuggesionCards.model.js";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 minutes for large files
@@ -123,18 +125,32 @@ export async function GET(req) {
     console.log(`📊 Fetching dashboard data for user: ${userId}`);
 
     // Fetch both data in parallel for better performance
-    const [files, sessions] = await Promise.all([
-      // Fetch brain files
+    const [files, liveAssistDistinctData, suggestionCards, liveAssistData] = await Promise.all([
+      // 1. Fetch brain files
       BrainFile.find({ user_id: userId })
         .sort({ createdAt: -1 })
         .lean(),
       
-      // Fetch dashboard sessions
-      DashboardSession.find({ user_id: userId })
-        .sort({ session_date: -1, createdAt: -1 })
-        .lean()
-    ]);
+      // 2. Fetch all LiveAssist entries (suggestion cards generated during meetings)
+       LiveAssist.distinct("roomId", { participantId: userId }),
+      
+      // 3. Fetch all SuggestionCards (cards clicked/saved by user)
+      SuggestionCard.find({ userId })
+        .sort({ createdAt: -1 })
+        .lean(),
 
+      LiveAssist.find({participantId: userId})
+    ]);
+    console.log("live assist data: ",liveAssistData)
+    const totalCardsGenerated = liveAssistData.length;
+    const totalCardsClicked = suggestionCards.length;
+    console.log("totalCardsClicked: ",totalCardsClicked)
+    console.log("totalCardsGenerated: ",totalCardsGenerated)
+
+      const cardPct = totalCardsGenerated > 0 
+      ? Math.round((totalCardsClicked / totalCardsGenerated) * 100) 
+      : 0;
+    console.log("card pct: ",cardPct)
     // Format files response
     const formattedFiles = files.map(f => ({
       id: f._id,
@@ -147,34 +163,34 @@ export async function GET(req) {
       lastIngested: f.last_ingested_at,
     }));
 
-    // Format sessions response
-    const formattedSessions = sessions.map(session => ({
-      ...session,
-      id: session._id.toString(),
-    }));
+  //   // Format sessions response
+  //   const formattedSessions = sessions.map(session => ({
+  //     ...session,
+  //     id: session._id.toString(),
+  //   }));
 
-      const totalSessions = sessions.length;
-  const avgCards = totalSessions
-    ? Math.round(
-        sessions.reduce((acc, session) => acc + (session.cards_used_pct || 0), 0) /
-          totalSessions,
-      )
-    : 0;
-  const totalRecoveries = sessions.reduce(
-    (acc, session) => acc + (session.recoveries || 0),
-    0,
-  );
+  //     const totalSessions = sessions.length;
+  // const avgCards = totalSessions
+  //   ? Math.round(
+  //       sessions.reduce((acc, session) => acc + (session.cards_used_pct || 0), 0) /
+  //         totalSessions,
+  //     )
+  //   : 0;
+  // const totalRecoveries = sessions.reduce(
+  //   (acc, session) => acc + (session.recoveries || 0),
+  //   0,
+  // );
     // Calculate stats
-    const stats = {
+    // const stats = {
       
-      files: files.length,
-      processedFiles: files.filter(f => f.ingestion_status === 'ready').length,
-      pendingFiles: files.filter(f => f.ingestion_status === 'pending').length,
-      failedFiles: files.filter(f => f.ingestion_status === 'failed').length,
-      totalChunks: files.reduce((sum, f) => sum + (f.chunk_count || 0), 0),
-    };
+    //   files: files.length,
+    //   processedFiles: files.filter(f => f.ingestion_status === 'ready').length,
+    //   pendingFiles: files.filter(f => f.ingestion_status === 'pending').length,
+    //   failedFiles: files.filter(f => f.ingestion_status === 'failed').length,
+    //   totalChunks: files.reduce((sum, f) => sum + (f.chunk_count || 0), 0),
+    // };
 
-    console.log(`✅ Found ${files.length} files and ${sessions.length} sessions for user ${userId}`);
+    // console.log(`✅ Found ${files.length} files and ${sessions.length} sessions for user ${userId}`);
 
     return NextResponse.json({
       success: true,
@@ -182,14 +198,11 @@ export async function GET(req) {
       files: formattedFiles,
       sources: formattedFiles, // For backward compatibility
       
-      // Sessions data
-      sessions: formattedSessions.length > 0 ? formattedSessions : getSeedSessions(userId),
-      
       // Stats
       stats: {
-        sessions: sessions.length,
-      cards: avgCards,
-      recoveries: totalRecoveries,
+        sessions: liveAssistDistinctData.length,
+      cards: cardPct,
+      // recoveries: totalRecoveries,
         files: files.length,
         processedFiles: files.filter(f => f.ingestion_status === 'ready').length,
         pendingFiles: files.filter(f => f.ingestion_status === 'pending').length,
@@ -198,7 +211,7 @@ export async function GET(req) {
       },
       
       // Additional dashboard data (default values)
-      pwr: sessions.length > 0 ? Math.min(sessions.length * 10, 100) : 0,
+      // pwr: sessions.length > 0 ? Math.min(sessions.length * 10, 100) : 0,
       deskQuote: files.length > 0 
         ? `Brain has ${files.length} files loaded with ${stats.totalChunks} chunks ready` 
         : "Feed it files. Watch the Brain charge.",
@@ -206,7 +219,7 @@ export async function GET(req) {
       playbooks: [],
       skills: [],
       journal: [],
-      goal: sessions.length > 0 ? "Continue building your knowledge base" : "Set your first goal.",
+      // goal: sessions.length > 0 ? "Continue building your knowledge base" : "Set your first goal.",
     });
   } catch (error) {
     console.error("❌ Error fetching dashboard data:", error);

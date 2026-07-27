@@ -30,7 +30,7 @@ export const uploadMicrophoneAudio = async (req, res) => {
     const { roomId, sessionId, participantId, participantName } = req.body;
     const audioBuffer = req.file?.buffer;
 
-    if (!roomId || !sessionId || !participantId || !audioBuffer) {
+    if (!participantId || !audioBuffer) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
@@ -78,3 +78,18 @@ export const uploadMicrophoneAudio = async (req, res) => {
     return res.status(500).json({ error: "Internal server error" });
   }
 };
+
+export const deleteMicrophoneAudio = async(req, res) => {
+  try {
+     const userId = req.params.userId;
+     console.log("deleting audio files for user: ",userId);
+    const deletedAudios = await MicAudio.deleteMany({participantId: userId});
+    if(!deletedAudios){
+      return res.status(400).json({error: "no audios found!"});
+    }
+    console.log("audios deleted: ",deletedAudios);
+    return res.status(200).json({success: true, deletedAudios});
+  } catch (error) {
+    return res.status(500).json({error: "internal server error"});
+  }
+}

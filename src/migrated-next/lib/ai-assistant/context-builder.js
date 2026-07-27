@@ -6,7 +6,10 @@ import BrainChunk from "../../app/models/BrainChunk.model.js";
 import AssistSessionMemory from "../../app/models/AssistSessionMemory.model.js";
 import Meeting from "../../app/models/Meeting.model.js";
 import EnterpriseMeeting from "../../../models/enterprise/EnterpriseMeeting.model.js";
+import EnterpriseBrainChunk from "../../../models/enterprise/EnterpriseBrainChunk.model.js";
+import EnterpriseProfile from "../../app/models/EnterpriseProfile.model.js";
 import { tokenize } from "./text-utils.js";
+import { retrieveEnterpriseBrainContextMultiCategory } from "../../app/api/enterprise/holo-assist/enterprise-brain-chunking.service.js";
 
 const BRAIN_TOP_K = 4;
 const BRAIN_CANDIDATE_LIMIT = 500;
@@ -124,30 +127,16 @@ function scoreChunkByTokens(chunk, queryTokens) {
 // 2.5 DETECT IF QUERY IS GENERAL
 // =============================================
 
-/**
- * Check if the query is a general question that doesn't need context
- */
 function isGeneralQuery(text) {
   const generalPatterns = [
-    // Greetings
     /^(hi|hello|hey|good morning|good afternoon|good evening|how are you|what's up|sup|yo|hola)/i,
-    // Weather
     /weather|temperature|rain|sunny|cloudy|hot|cold|forecast/i,
-    // Time/Date
     /what time|what's the time|what day|what date|what's today|what's the date/i,
-    // General small talk
     /how's it going|how are you doing|what's new|what's happening|how have you been/i,
-    // Simple questions about the assistant
     /who are you|what are you|what is your name|what do you do|are you real/i,
-    // Simple yes/no questions
     /are you there|can you hear me|can you help me|do you understand/i,
-    // General knowledge questions (not business specific)
-    /what is (?!.*(?:product|service|company|feature|price|cost|plan|offer|solution|software|app|platform|integration|api|tool|system|workflow|automation|analytics|dashboard|report|customer|client|user|support|team|employee|hire|job|career|position|role|budget|goal|target|strategy|timeline|deadline|roadmap|version|update|upgrade|migration|deployment|implementation|training|onboarding|documentation|manual|guide|tutorial|demo|trial|pilot|feedback|review|test|quality|security|compliance|license|contract|agreement|partner|vendor|provider|solution|expertise|experience|case study|testimonial))/i,
-    // General questions without specific topics
-    /^what (?!.*(?:product|service|company|feature|price|cost|plan|offer|solution|software|app|platform|integration|api|tool|system|workflow|automation|analytics|dashboard|report|customer|client|user|support|team|employee|hire|job|career|position|role|budget|goal|target|strategy|timeline|deadline|roadmap|version|update|upgrade|migration|deployment|implementation|training|onboarding|documentation|manual|guide|tutorial|demo|trial|pilot|feedback|review|test|quality|security|compliance|license|contract|agreement|partner|vendor|provider|solution|expertise|experience|case study|testimonial))/i,
   ];
 
-  // Check if any pattern matches
   for (const pattern of generalPatterns) {
     if (pattern.test(text)) {
       console.log(`🟢 [GENERAL QUERY] Detected as general: "${text.slice(0, 50)}..."`);
@@ -155,7 +144,6 @@ function isGeneralQuery(text) {
     }
   }
 
-  // Check if the query has any keywords that suggest it needs context
   const contextKeywords = [
     'product', 'service', 'company', 'feature', 'price', 'cost', 'plan', 'offer',
     'solution', 'software', 'app', 'platform', 'integration', 'api', 'tool', 'system',
@@ -173,7 +161,6 @@ function isGeneralQuery(text) {
     text.toLowerCase().includes(keyword)
   );
 
-  // If no context keywords, it's probably a general question
   if (!hasContextKeyword) {
     console.log(`🟢 [GENERAL QUERY] No context keywords found: "${text.slice(0, 50)}..."`);
     return true;
@@ -195,7 +182,6 @@ async function getParticipantNameMapping(roomId) {
   const userIdsToLookup = new Set();
   let meetingFound = false;
 
-  // Step 1: Check General Meeting schema FIRST
   try {
     console.log('  🔍 Checking General Meeting schema...');
     const meeting = await Meeting.findOne({ meetingId: roomId })
@@ -225,7 +211,6 @@ async function getParticipantNameMapping(roomId) {
     console.log('  ⚠️ Error fetching General Meeting:', error.message);
   }
 
-  // Step 2: ONLY check Enterprise Meeting if NOT found in General
   if (!meetingFound) {
     console.log('  🔍 General Meeting not found, checking Enterprise Meeting schema...');
     
@@ -256,7 +241,6 @@ async function getParticipantNameMapping(roomId) {
         if (allParticipantIds.size > 0) {
           const participantIds = Array.from(allParticipantIds);
           
-          // Try EnterpriseProfile
           try {
             const EnterpriseProfile = (await import('../../app/models/EnterpriseProfile.model.js')).default;
             const enterpriseMembers = await EnterpriseProfile.find({
@@ -288,7 +272,6 @@ async function getParticipantNameMapping(roomId) {
             console.log('  ⚠️ Could not fetch EnterpriseProfile names:', error.message);
           }
           
-          // Try Profile
           try {
             const Profile = (await import('../../app/models/Profile.model.js')).default;
             const normalUsers = await Profile.find({
@@ -319,7 +302,6 @@ async function getParticipantNameMapping(roomId) {
     console.log('  ✅ Using General Meeting data (skipping Enterprise Meeting check)');
   }
 
-  // Step 3: Fallback - Use LiveAssist transcripts
   if (Object.keys(nameMap).length === 0) {
     console.log('  🔍 No names from meetings, falling back to transcripts...');
     try {
@@ -355,28 +337,15 @@ async function getParticipantNameMapping(roomId) {
   return nameMap;
 }
 
-/**
- * Identify who the question is directed to - IMPROVED
- */
 async function identifyTargetUser(queryText, roomId, currentUserId) {
   console.log('🎯 [TARGET IDENTIFICATION] Identifying who should answer...');
   console.log(`  Query: "${queryText}"`);
   console.log(`  Current User ID: ${currentUserId}`);
 
-  // Get participant name mapping
   const nameMap = await getParticipantNameMapping(roomId);
-  console.log(`  📊 Participants found:`, Object.keys(nameMap).length);
-
-  if (Object.keys(nameMap).length > 0) {
-    console.log(`  👥 Participant list:`);
-    Object.entries(nameMap).forEach(([id, name]) => {
-      console.log(`    ${id} → ${name}`);
-    });
-  }
 
   const queryLower = queryText.toLowerCase();
 
-  // PRIORITY 1: Check for name mentions
   for (const [userId, userName] of Object.entries(nameMap)) {
     if (!userName || userName === userId) continue;
     if (userId === currentUserId) continue;
@@ -413,7 +382,6 @@ async function identifyTargetUser(queryText, roomId, currentUserId) {
     }
   }
 
-  // PRIORITY 2: Check if it's a question directed to anyone
   const questionPatterns = [
     /can you/i, /do you/i, /could you/i, /would you/i,
     /are you/i, /tell me/i, /explain/i, /what do you/i,
@@ -427,7 +395,6 @@ async function identifyTargetUser(queryText, roomId, currentUserId) {
   if (isDirectQuestion) {
     console.log('  🔍 Direct question detected, finding the most relevant speaker...');
 
-    // Get the most recent speaker (excluding current user)
     const recentTranscripts = await LiveAssist.find({
       roomId,
       participantId: { $ne: currentUserId }
@@ -443,7 +410,6 @@ async function identifyTargetUser(queryText, roomId, currentUserId) {
       return targetId;
     }
     
-    // If no recent speaker, find any participant with chunks
     const usersWithChunks = await BrainChunk.distinct('user_id');
     const availableTargets = Object.keys(nameMap).filter(id => 
       usersWithChunks.includes(id) && id !== currentUserId
@@ -457,7 +423,6 @@ async function identifyTargetUser(queryText, roomId, currentUserId) {
     }
   }
 
-  // PRIORITY 3: Check if any participant has chunks (anyone who can answer)
   const usersWithChunks = await BrainChunk.distinct('user_id');
   const availableTargets = Object.keys(nameMap).filter(id => 
     usersWithChunks.includes(id) && id !== currentUserId
@@ -470,177 +435,263 @@ async function identifyTargetUser(queryText, roomId, currentUserId) {
     return targetId;
   }
 
-  // PRIORITY 4: LAST RESORT - Use speaker (but only if no other option)
   console.log(`  ⚠️ No suitable target found, using speaker as last resort: ${currentUserId}`);
   return currentUserId;
 }
 
 // =============================================
-// 4. RETRIEVAL - MULTI-USER WITH HYBRID APPROACH
+// 4. ENTERPRISE USER HELPERS
 // =============================================
 
-async function retrieveBrainContextMultiUser(userId, queryText, roomId, topK = BRAIN_TOP_K) {
-  console.log('\n📚 [BRAIN RETRIEVAL] Multi-User Starting...');
-  console.log(`👤 Current User (speaker): ${userId}`);
+async function isEnterpriseUser(userId) {
+  try {
+    const profile = await EnterpriseProfile.findOne({ 
+      $or: [{ userId: userId }, { _id: userId }] 
+    }).lean();
+    return !!profile;
+  } catch (error) {
+    console.error('Error checking enterprise user:', error);
+    return false;
+  }
+}
+
+async function getEnterpriseOrganizationId(userId) {
+  try {
+    const profile = await EnterpriseProfile.findOne({ 
+      $or: [{ userId: userId }, { _id: userId }] 
+    }).select('organizationId').lean();
+    return profile?.organizationId || null;
+  } catch (error) {
+    console.error('Error getting enterprise organization:', error);
+    return null;
+  }
+}
+
+// =============================================
+// 5. RETRIEVAL - MERGED CHUNKS
+// =============================================
+
+async function retrieveBrainContextMerged(userId, queryText, roomId, topK = BRAIN_TOP_K) {
+  console.log('\n📚 [BRAIN RETRIEVAL] Starting...');
+  console.log(`👤 User ID: ${userId}`);
   console.log(`🔍 Query: "${queryText.slice(0, 100)}..."`);
-  console.log(`📊 Top K: ${topK}`);
 
   if (!userId || !queryText || queryText.trim().length === 0) {
     console.log('⚠️ [BRAIN RETRIEVAL] No userId or queryText provided');
     return [];
   }
 
-  // Step 1: Check if this is a general query
   const isGeneral = isGeneralQuery(queryText);
-  
   if (isGeneral) {
     console.log('🟢 [BRAIN RETRIEVAL] General query detected - skipping chunk search');
-    // Return empty array for general queries (they'll be handled by the AI directly)
     return [];
   }
 
-  // Step 2: For context-specific queries, proceed with normal retrieval
-  console.log('🔵 [BRAIN RETRIEVAL] Context-specific query - searching for relevant chunks');
-
   // Identify target user
   const targetUserId = await identifyTargetUser(queryText, roomId, userId);
-  console.log(`🎯 Target User (who has knowledge): ${targetUserId}`);
+  console.log(`🎯 Target User: ${targetUserId}`);
+
+  // Check if target user is enterprise
+  const isEnterprise = await isEnterpriseUser(targetUserId);
+  console.log(`🏢 Is Enterprise User: ${isEnterprise}`);
 
   // Get all users who have chunks
   const usersWithChunks = await BrainChunk.distinct('user_id');
-  console.log(`📊 Users with chunks: ${usersWithChunks.join(', ') || 'none'}`);
+  console.log(`📊 Users with personal chunks: ${usersWithChunks.join(', ') || 'none'}`);
 
-  // Build list of users to search
-  let userIdsToSearch = [];
+  // Build list of user IDs to search for personal chunks
+  let userIdsToSearch = [targetUserId];
 
-  // ALWAYS include the target user
-  userIdsToSearch.push(targetUserId);
-
-  // If target user is the speaker (last resort), include ALL users with chunks
   if (targetUserId === userId) {
     console.log(`⚠️ Using speaker as fallback, including all users with chunks...`);
     userIdsToSearch = [...userIdsToSearch, ...usersWithChunks];
   }
 
-  // Remove duplicates
   userIdsToSearch = [...new Set(userIdsToSearch)];
-  console.log(`🔍 Searching chunks from users: ${userIdsToSearch.join(', ')}`);
+  console.log(`🔍 Searching personal chunks from users: ${userIdsToSearch.join(', ')}`);
 
-  // Fetch chunks
-  const allChunks = await BrainChunk.find({
-    user_id: { $in: userIdsToSearch }
-  })
-    .sort({ updatedAt: -1 })
-    .limit(BRAIN_CANDIDATE_LIMIT)
-    .lean();
+  // Fetch personal chunks
+  let personalChunks = [];
+  if (userIdsToSearch.length > 0) {
+    personalChunks = await BrainChunk.find({
+      user_id: { $in: userIdsToSearch }
+    })
+      .sort({ updatedAt: -1 })
+      .limit(BRAIN_CANDIDATE_LIMIT)
+      .lean();
 
-  console.log(`📦 Total chunks found: ${allChunks.length}`);
+    console.log(`📦 Personal chunks found: ${personalChunks.length}`);
+  }
+
+  // Fetch enterprise chunks if user is enterprise
+  let enterpriseChunks = [];
+  let organizationId = null;
+
+  if (isEnterprise) {
+    organizationId = await getEnterpriseOrganizationId(targetUserId);
+    console.log(`🏢 Organization ID: ${organizationId}`);
+
+    if (organizationId) {
+      const categories = ['flag_words', 'kpi', 'compliance', 'policies'];
+      console.log(`🔍 Searching enterprise brain chunks for organization: ${organizationId}`);
+      console.log(`📂 Categories: ${categories.join(', ')}`);
+
+      try {
+        enterpriseChunks = await retrieveEnterpriseBrainContextMultiCategory(
+          organizationId,
+          categories,
+          queryText,
+          topK
+        );
+        console.log(`✅ Retrieved ${enterpriseChunks.length} enterprise chunks`);
+      } catch (error) {
+        console.error('❌ Error retrieving enterprise chunks:', error);
+      }
+    }
+  }
+
+  // Merge both types of chunks
+  const allChunks = [...personalChunks, ...enterpriseChunks];
+  console.log(`📦 Total chunks (personal + enterprise): ${allChunks.length}`);
 
   if (allChunks.length === 0) {
-    console.log('⚠️ [BRAIN RETRIEVAL] No chunks found for any user');
+    console.log('⚠️ [BRAIN RETRIEVAL] No chunks found');
     return [];
   }
 
-  const chunksByUser = allChunks.reduce((acc, chunk) => {
-    acc[chunk.user_id] = (acc[chunk.user_id] || 0) + 1;
-    return acc;
-  }, {});
-  console.log('📊 Chunks by user:', chunksByUser);
-
-  // Score and rank chunks
+  // Score and rank all chunks
   const queryTokens = tokenize(queryText);
   const detectedTopics = await detectTopicsFromText(queryText);
   console.log(`🎯 Detected topics: ${detectedTopics.join(", ")}`);
 
   const scoredChunks = allChunks
     .map((chunk) => {
-      const chunkTopics = chunk.topic_keywords || chunk.keywords || [];
+      // For personal chunks
+      if (chunk.user_id) {
+        const chunkTopics = chunk.topic_keywords || chunk.keywords || [];
+        const hasTopicMatch = detectedTopics.some(topic => {
+          return chunkTopics.some(keyword =>
+            keyword.toLowerCase().includes(topic) ||
+            topic.includes(keyword.toLowerCase())
+          );
+        });
 
-      const hasTopicMatch = detectedTopics.some(topic => {
-        return chunkTopics.some(keyword =>
-          keyword.toLowerCase().includes(topic) ||
-          topic.includes(keyword.toLowerCase())
-        );
-      });
+        const userBoost = (chunk.user_id === targetUserId) ? 0.4 : 0;
+        const score = hasTopicMatch
+          ? 0.8 + scoreChunkByTopic(chunk, detectedTopics, queryTokens) * 0.2 + userBoost
+          : scoreChunkByTopic(chunk, detectedTopics, queryTokens) + userBoost;
 
-      // Boost score if chunk belongs to the target user
-      const userBoost = (chunk.user_id === targetUserId) ? 0.4 : 0;
+        return {
+          ...chunk,
+          _score: Math.min(score, 1.0),
+          _topicMatch: hasTopicMatch,
+          _detectedTopics: detectedTopics,
+          _isTargetUser: chunk.user_id === targetUserId,
+          _isEnterprise: false,
+          _category: null,
+          _isSpeaker: chunk.user_id === userId,
+        };
+      } 
+      // For enterprise chunks
+      else {
+        const chunkText = `${chunk.text || ""} ${(chunk.keywords || []).join(" ")}`.toLowerCase();
+        let score = 0;
+        for (const token of queryTokens) {
+          if (chunkText.includes(token)) {
+            score += 1;
+          }
+        }
+        score = score / Math.max(1, queryTokens.length);
+        
+        if (chunk.topic && queryText.toLowerCase().includes(chunk.topic.toLowerCase())) {
+          score += 0.3;
+        }
 
-      const score = hasTopicMatch
-        ? 0.8 + scoreChunkByTopic(chunk, detectedTopics, queryTokens) * 0.2 + userBoost
-        : scoreChunkByTopic(chunk, detectedTopics, queryTokens) + userBoost;
-
-      return {
-        ...chunk,
-        _score: Math.min(score, 1.0),
-        _topicMatch: hasTopicMatch,
-        _detectedTopics: detectedTopics,
-        _isTargetUser: chunk.user_id === targetUserId,
-        _isSpeaker: chunk.user_id === userId,
-      };
+        return {
+          ...chunk,
+          _score: Math.min(score, 1.0),
+          _topicMatch: score > 0.3,
+          _detectedTopics: detectedTopics,
+          _isTargetUser: true,
+          _isEnterprise: true,
+          _category: chunk.category || null,
+          _isSpeaker: false,
+        };
+      }
     })
     .filter((chunk) => chunk._score >= BRAIN_MIN_RELEVANCE)
     .sort((a, b) => {
-      // Prioritize: target user's chunks, then topic match, then score
+      // Prioritize: target user's personal chunks, then enterprise chunks, then others
       if (a._isTargetUser && !b._isTargetUser) return -1;
       if (!a._isTargetUser && b._isTargetUser) return 1;
+      if (a._isEnterprise && !b._isEnterprise) return -1;
+      if (!a._isEnterprise && b._isEnterprise) return 1;
       return b._score - a._score;
     })
     .slice(0, topK);
 
   console.log(`✅ [BRAIN RETRIEVAL] ${scoredChunks.length} chunks selected`);
 
-  scoredChunks.forEach((chunk, i) => {
-    console.log(`\n  🏆 Chunk ${i + 1}:`);
-    console.log(`     User: ${chunk.user_id} ${chunk._isTargetUser ? '🎯 (Target)' : ''} ${chunk._isSpeaker ? '🗣️ (Speaker)' : ''}`);
-    console.log(`     Topic: ${chunk.topic || 'general'}`);
-    console.log(`     Score: ${(chunk._score * 100).toFixed(1)}%`);
-    console.log(`     File: ${chunk.file_name}`);
-    console.log(`     Preview: ${(chunk.text || '').slice(0, 80)}...`);
+  const formattedChunks = scoredChunks.map((chunk) => {
+    if (chunk._isEnterprise) {
+      return {
+        fileId: chunk.fileId,
+        fileName: chunk.file_name || 'Enterprise Knowledge',
+        text: String(chunk.text || "").slice(0, BRAIN_MAX_TEXT_CHARS),
+        score: chunk._score,
+        topicMatch: chunk._topicMatch || false,
+        detectedTopics: chunk._detectedTopics,
+        topic: chunk.topic || "general",
+        topicHeader: chunk.topic_header || "",
+        userId: targetUserId,
+        isTargetUser: true,
+        isSpeaker: false,
+        isEnterprise: true,
+        category: chunk._category,
+      };
+    } else {
+      return {
+        fileId: chunk.file_id,
+        fileName: chunk.file_name,
+        text: String(chunk.text || "").slice(0, BRAIN_MAX_TEXT_CHARS),
+        score: chunk._score,
+        topicMatch: chunk._topicMatch || false,
+        chunkIndex: chunk.chunk_index,
+        detectedTopics: chunk._detectedTopics,
+        topic: chunk.topic || "general",
+        topicHeader: chunk.topic_header || "",
+        userId: chunk.user_id,
+        isTargetUser: chunk._isTargetUser,
+        isSpeaker: chunk._isSpeaker,
+        isEnterprise: false,
+        category: null,
+      };
+    }
   });
 
-  if (scoredChunks.length === 0) {
-    console.log("⚠️ [BRAIN RETRIEVAL] No relevant chunks found");
-    return [];
-  }
-
-  const result = scoredChunks.map((chunk) => ({
-    fileId: chunk.file_id,
-    fileName: chunk.file_name,
-    text: String(chunk.text || "").slice(0, BRAIN_MAX_TEXT_CHARS),
-    score: chunk._score,
-    topicMatch: chunk._topicMatch || false,
-    chunkIndex: chunk.chunk_index,
-    detectedTopics: chunk._detectedTopics,
-    topic: chunk.topic || "general",
-    topicHeader: chunk.topic_header || "",
-    userId: chunk.user_id,
-    isTargetUser: chunk._isTargetUser,
-    isSpeaker: chunk._isSpeaker,
-  }));
-
-  console.log(`✅ [BRAIN RETRIEVAL] Returning ${result.length} chunks\n`);
-  return result;
+  console.log(`✅ [BRAIN RETRIEVAL] Returning ${formattedChunks.length} chunks (${formattedChunks.filter(c => c.isEnterprise).length} enterprise)`);
+  return formattedChunks;
 }
 
 // =============================================
-// 5. CONTEXT PRIORITY SYSTEM
+// 6. CONTEXT PRIORITY SYSTEM
 // =============================================
 
 function getPriorityPolicy() {
   return {
     order: [
-      "1_target_user_questionnaire",
-      "2_brain_files_relevant",
-      "3_session_memory",
-      "4_recent_transcripts",
+      "1_enterprise_brain_chunks",
+      "2_personal_brain_chunks",
+      "3_target_user_profile",
+      "4_session_memory",
+      "5_recent_transcripts",
     ],
     brainMinRelevance: BRAIN_MIN_RELEVANCE,
   };
 }
 
 // =============================================
-// 6. FORMATTING FUNCTIONS
+// 7. FORMATTING FUNCTIONS
 // =============================================
 
 function formatQuestionnaire(profile) {
@@ -677,7 +728,7 @@ function formatQuestionnaire(profile) {
 function formatBrainChunks(chunks) {
   if (!chunks || chunks.length === 0) {
     console.log('🧠 [BRAIN CHUNKS] No chunks to format');
-    return "No relevant brain files found";
+    return "No relevant knowledge found";
   }
 
   console.log(`🧠 [BRAIN CHUNKS] Formatting ${chunks.length} chunks`);
@@ -685,7 +736,8 @@ function formatBrainChunks(chunks) {
   return chunks
     .map(
       (item, index) =>
-        `[${index + 1}] USER: ${item.userId || 'unknown'} ${item.isTargetUser ? '🎯 (Target)' : ''} ${item.isSpeaker ? '🗣️ (Speaker)' : ''}\n` +
+        `[${index + 1}] ${item.isEnterprise ? '🏢 ENTERPRISE' : '👤 PERSONAL'} ${item.isTargetUser ? '🎯 (Target)' : ''}\n` +
+        `    ${item.isEnterprise ? `CATEGORY: ${item.category || 'general'}\n` : `USER: ${item.userId || 'unknown'}\n`}` +
         `    TOPIC: ${item.topic || item.detectedTopics?.join(", ") || "General"}\n` +
         `    FILE: ${item.fileName}\n` +
         `    RELEVANCE: ${(item.score * 100).toFixed(1)}%\n` +
@@ -721,7 +773,7 @@ function formatTranscripts(transcripts) {
 }
 
 // =============================================
-// 7. MAIN CONTEXT BUILDER - UPDATED
+// 8. MAIN CONTEXT BUILDER
 // =============================================
 
 export async function buildAssistContext({
@@ -757,20 +809,17 @@ export async function buildAssistContext({
     };
   }
 
-  // Step 1: Identify target user FIRST
   const targetUserId = await identifyTargetUser(queryText, roomId, userId);
   console.log(`🎯 Target User ID: ${targetUserId}`);
 
-  console.log('\n📊 [CONTEXT BUILDER] Fetching data for target user...');
+  console.log('\n📊 [CONTEXT BUILDER] Fetching data...');
 
-  // Fetch all context data for TARGET USER
   const [
     targetProfile,
     recentTranscripts,
     recentMemory,
     retrievedChunks,
   ] = await Promise.all([
-    // Fetch TARGET USER's profile (not speaker)
     (async () => {
       console.log(`  🔍 Fetching profile for target user: ${targetUserId}...`);
       const result = await HoloAssistQuestionnaire.findOne({ user_id: targetUserId }).lean();
@@ -779,35 +828,33 @@ export async function buildAssistContext({
     })(),
     (async () => {
       console.log('  🔍 Fetching transcripts for room...');
-      const result = userId && roomId
-        ? await LiveAssist.find({ roomId })
-            .sort({ createdAt: -1 })
-            .limit(10)
-            .lean()
-        : [];
+      const result = await LiveAssist.find({ roomId })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean();
       console.log(`  ✅ Found ${result.length} transcripts`);
       return result;
     })(),
     (async () => {
       console.log('  🔍 Fetching session memory for target user...');
-      const result = targetUserId && sessionId
-        ? await AssistSessionMemory.find({ user_id: targetUserId, session_id: sessionId })
-            .sort({ createdAt: -1 })
-            .limit(15)
-            .lean()
-        : [];
+      const result = await AssistSessionMemory.find({ 
+        user_id: targetUserId, 
+        session_id: sessionId 
+      })
+        .sort({ createdAt: -1 })
+        .limit(15)
+        .lean();
       console.log(`  ✅ Found ${result.length} memory entries`);
       return result;
     })(),
     (async () => {
-      console.log('  🔍 Retrieving brain chunks for target user...');
-      const result = await retrieveBrainContextMultiUser(userId, queryText, roomId, BRAIN_TOP_K);
+      console.log('  🔍 Retrieving merged brain chunks...');
+      const result = await retrieveBrainContextMerged(targetUserId, queryText, roomId, BRAIN_TOP_K);
       console.log(`  ✅ Retrieved ${result.length} chunks`);
       return result;
     })(),
   ]);
 
-  // Build the context object
   const context = {
     userId: targetUserId,
     speakerUserId: userId,
@@ -819,9 +866,8 @@ export async function buildAssistContext({
     recentMemory,
     priorityPolicy: getPriorityPolicy(),
     queryText,
-    isGeneralQuery: isGeneralQuery(queryText), // Add flag for general queries
+    isGeneralQuery: isGeneralQuery(queryText),
 
-    // Formatted texts for prompt building
     profileText: formatQuestionnaire(targetProfile),
     brainChunksText: formatBrainChunks(retrievedChunks),
     memoryText: formatSessionMemory(recentMemory),
@@ -831,7 +877,7 @@ export async function buildAssistContext({
   console.log('\n📊 [CONTEXT BUILDER] Context Summary:');
   console.log(`  ✅ Target User: ${targetUserId}`);
   console.log(`  ✅ Profile: ${targetProfile ? 'Found' : 'Not found'}`);
-  console.log(`  ✅ Brain Chunks: ${retrievedChunks.length}`);
+  console.log(`  ✅ Brain Chunks: ${retrievedChunks.length} (${retrievedChunks.filter(c => c.isEnterprise).length} enterprise)`);
   console.log(`  ✅ Session Memory: ${recentMemory.length}`);
   console.log(`  ✅ Transcripts: ${recentTranscripts.length}`);
   console.log(`  ✅ Is General Query: ${context.isGeneralQuery}`);
@@ -847,7 +893,7 @@ export async function buildAssistContext({
 }
 
 // =============================================
-// 8. PROMPT BUILDER - UPDATED WITH HYBRID APPROACH
+// 9. PROMPT BUILDER
 // =============================================
 
 export function buildContextPrompt(context) {
@@ -857,7 +903,9 @@ export function buildContextPrompt(context) {
     .map((item, index) => `${index + 1}. ${item}`)
     .join("\n");
 
-  // Different system prompts for general vs context queries
+  const enterpriseCount = context.retrievedChunks?.filter(c => c.isEnterprise).length || 0;
+  const personalCount = context.retrievedChunks?.length - enterpriseCount || 0;
+
   let contextSection = "";
   
   if (context.isGeneralQuery) {
@@ -869,20 +917,24 @@ Use your general knowledge to answer appropriately.
 Do not mention that you don't have context - just respond naturally.
 Keep responses concise and helpful.
 `;
-  } else if (context.brainChunksText && context.brainChunksText !== "No relevant brain files found") {
+  } else if (context.brainChunksText && context.brainChunksText !== "No relevant knowledge found") {
+    const chunkSummary = `Found ${context.retrievedChunks?.length || 0} relevant chunks (${personalCount} personal, ${enterpriseCount} enterprise)`;
     contextSection = `
---- RELEVANT BRAIN KNOWLEDGE FOUND ---
+--- RELEVANT KNOWLEDGE FOUND ---
+${chunkSummary}
+
 ${context.brainChunksText}
 
-Use the above brain knowledge as the PRIMARY source for your response.
-Only provide information that is directly supported by these brain files.
-If the brain files don't contain the answer, say so clearly.
-Do not make up or infer information not present in the brain files.
+Use the above knowledge as the PRIMARY source for your response.
+${enterpriseCount > 0 ? 'Enterprise knowledge is from organization-wide training files with categories: flag_words, kpi, compliance, policies.' : ''}
+${personalCount > 0 ? 'Personal knowledge is from the user\'s individual brain files.' : ''}
+Only provide information that is directly supported by these sources.
+If the sources don't contain the answer, say so clearly.
 `;
   } else {
     contextSection = `
---- NO RELEVANT BRAIN KNOWLEDGE ---
-No relevant brain files were found for this query.
+--- NO RELEVANT KNOWLEDGE ---
+No relevant knowledge was found for this query.
 However, you can still respond using your general knowledge.
 Be honest if you don't know something specific.
 Keep responses concise and helpful.
@@ -893,21 +945,22 @@ Keep responses concise and helpful.
 SYSTEM CONTEXT PRIORITY (Strict Order):
 ${priorityOrder}
 
---- PRIORITY 1: TARGET USER PROFILE & COMMUNICATION STYLE ---
+--- PRIORITY 1: CONTEXT KNOWLEDGE PROVIDED ,TARGET USER PROFILE & COMMUNICATION STYLE ---
 ${context.profileText || "Not available"}
 
 ${contextSection}
 
---- PRIORITY 3: SESSION MEMORY (Continuity) ---
+--- PRIORITY 4: SESSION MEMORY (Continuity) ---
 ${context.memoryText || "No session history"}
 
---- PRIORITY 4: RECENT MEETING CONTEXT ---
+--- PRIORITY 5: RECENT MEETING CONTEXT ---
 ${context.transcriptsText || "No meeting context"}
 
 POLICY NOTES:
 - ALWAYS use the target user's profile for tone, goals, and communication style
-- For general queries, respond naturally without needing brain context
-- For business queries, rely primarily on brain knowledge
+- For general queries, respond naturally without needing context
+- For business queries, rely primarily on the knowledge provided
+- Personal and enterprise knowledge are both valid sources
 - Be helpful, concise, and professional
 - Avoid generic responses like "I'm ready to assist"
 
@@ -916,12 +969,13 @@ CURRENT QUERY: "${context.queryText || ""}"
 
   console.log(`📝 [PROMPT BUILDER] Generated prompt with ${prompt.length} characters`);
   console.log(`  📌 Query Type: ${context.isGeneralQuery ? '🟢 General' : '🔵 Context-Specific'}`);
+  console.log(`  📊 Chunks: ${context.retrievedChunks?.length || 0} (${personalCount} personal, ${enterpriseCount} enterprise)`);
 
   return prompt;
 }
 
 // =============================================
-// 9. SAVE ASSIST MEMORY
+// 10. SAVE ASSIST MEMORY
 // =============================================
 
 export async function saveAssistMemory({
@@ -958,12 +1012,12 @@ export async function saveAssistMemory({
 }
 
 // =============================================
-// 10. EXPORTS
+// 11. EXPORTS
 // =============================================
 
 export {
   detectTopicsFromText,
-  retrieveBrainContextMultiUser,
+  retrieveBrainContextMerged,
   scoreChunkByTopic,
   scoreChunkByTokens,
   getPriorityPolicy,
@@ -971,4 +1025,6 @@ export {
   formatBrainChunks,
   identifyTargetUser,
   isGeneralQuery,
+  isEnterpriseUser,
+  getEnterpriseOrganizationId,
 };
