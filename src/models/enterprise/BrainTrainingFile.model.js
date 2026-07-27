@@ -23,6 +23,16 @@ const BrainTrainingFileSchema = new mongoose.Schema(
       default: "application/octet-stream",
       trim: true,
     },
+    // What kind of content this file was uploaded as. Determines which
+    // downstream collection the extracted content is imported into:
+    // flag_words -> FlagWord/UserFlag ("Enterprise Flags"), kpi -> EnterpriseKpi,
+    // compliance -> EnterpriseCompliance, policies -> EnterprisePolicy.
+    category: {
+      type: String,
+      enum: ["flag_words", "kpi", "compliance", "policies"],
+      default: "flag_words",
+      index: true,
+    },
     size: {
       type: Number,
       default: 0,
