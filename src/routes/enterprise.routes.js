@@ -22,6 +22,7 @@ import {
   updateEnterpriseMeeting,
   updateEnterpriseFlag,
   uploadBrainTrainingFile,
+  deleteBrainTrainingFiles,
 } from "../controllers/enterprise.controller.js";
 
 const router = express.Router();
@@ -37,6 +38,7 @@ router.patch("/enterprise/users/:id/manager", asyncRoute(reparentEnterpriseUser)
 router.delete("/enterprise/users/:id", asyncRoute(deleteEnterpriseUser));
 
 router.get("/enterprise/brain/files", asyncRoute(getBrainTrainingFiles));
+router.delete("/enterprise/brain/files", asyncRoute(deleteBrainTrainingFiles));
 router.post("/enterprise/brain/files", upload.single("file"), asyncRoute(uploadBrainTrainingFile));
 
 router.get("/enterprise/brain/suggestions", asyncRoute(getBrainSuggestions));

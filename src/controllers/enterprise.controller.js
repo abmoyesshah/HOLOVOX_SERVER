@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import mongoose from "mongoose";
 import EnterpriseProfile from "../migrated-next/app/models/EnterpriseProfile.model.js";
 import BrainTrainingFile from "../models/enterprise/BrainTrainingFile.model.js";
+import EnterpriseBrainChunk from "../models/enterprise/EnterpriseBrainChunk.model.js";
 import FlagWord from "../models/enterprise/FlagWord.model.js";
 import UserFlag from "../models/enterprise/UserFlag.model.js";
 import EnterpriseKpi from "../models/enterprise/EnterpriseKpi.model.js";
@@ -269,6 +270,59 @@ export const getBrainTrainingFiles = async (req, res) => {
     reviewStatus: { $nin: ["pending", "rejected"] },
   }).sort({ createdAt: -1 }).lean();
   res.status(200).json({ success: true, data: files });
+};
+// controllers/enterprise/brainTrainingController.js
+
+export const deleteBrainTrainingFiles = async (req, res) => {
+  try {
+    // Get ID from query parameter or body
+    const { id } = req.query; // If using query param: /enterprise/brain/files?id=123
+    // OR
+    // const { id } = req.body; // If using body
+    // OR
+    // const id = req.params.id; // If using URL param: /enterprise/brain/files/:id
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: "File ID is required"
+      });
+    }
+
+    // Find the file
+    const file = await BrainTrainingFile.findOne({
+      _id: id
+    });
+
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        error: "File not found"
+      });
+    }
+
+    // Delete associated chunks
+    const deleteChunksResult = await EnterpriseBrainChunk.deleteMany({
+      fileId: id,
+    });
+
+    console.log(`Deleted ${deleteChunksResult.deletedCount} chunks for file ${id}`);
+
+    // Delete the file record
+    await BrainTrainingFile.findByIdAndDelete(id);
+
+    return res.status(200).json({
+      success: true,
+      message: "File and associated chunks deleted successfully",
+      deletedChunks: deleteChunksResult.deletedCount
+    });
+  } catch (error) {
+    console.error("Error deleting enterprise brain file:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Failed to delete file"
+    });
+  }
 };
 
 // Manager -> owner "suggest a file for the Company Brain" workflow. Suggested
