@@ -77,6 +77,11 @@ const UserFlagSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    count: {
+      type: Number,
+      default: 1,
+      min: 1,
+    },
     severity: {
       type: String,
       enum: ["low", "medium", "high"],
@@ -129,7 +134,7 @@ const UserFlagSchema = new mongoose.Schema(
 UserFlagSchema.index({ organizationId: 1, status: 1, createdAt: -1 });
 UserFlagSchema.index({ organizationId: 1, flaggedMemberId: 1, status: 1 });
 UserFlagSchema.index(
-  { transcriptId: 1, flagWordId: 1, flaggedMemberId: 1 },
+  { meetingId: 1, flagWordId: 1, flaggedMemberId: 1 },
   { unique: true }
 );
 

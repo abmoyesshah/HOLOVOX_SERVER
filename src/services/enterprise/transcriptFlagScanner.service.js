@@ -99,35 +99,42 @@ export const scanTranscriptForFlags = async ({
     const match = regex.exec(text);
     if (!match) continue;
 
-    try {
-      const userFlag = await UserFlag.create({
-        organizationId,
+    // One flag per {meeting, flag word, speaker}: the first occurrence creates
+    // the flag with full metadata; every repeat occurrence just increments
+    // `count` on that same flag instead of creating a new record.
+    const userFlag = await UserFlag.findOneAndUpdate(
+      {
         meetingId,
-        enterpriseMeetingId: enterpriseMeetingId || null,
-        transcriptId: transcript._id,
-        enterpriseTranscriptId: transcript._id,
         flagWordId: flagWord._id,
         flaggedMemberId: speakerMemberId || participantMemberId || null,
-        speakerUserId: speakerUserId || null,
-        speakerMemberId: speakerMemberId || participantMemberId || null,
-        speakerRole,
-        managerId: participant?.parentId || null,
-        quote: quoteAround(text, match.index, match[0].length),
-        matchedWord: match[0],
-        severity: flagWord.severity,
-        category: flagWord.category,
-        segment: {
-          ...(segment || {}),
-          matchIndex: match.index,
-          matchLength: match[0].length,
-          transcriptCreatedAt: transcript.createdAt,
+      },
+      {
+        $inc: { count: 1 },
+        $setOnInsert: {
+          organizationId,
+          enterpriseMeetingId: enterpriseMeetingId || null,
+          transcriptId: transcript._id,
+          enterpriseTranscriptId: transcript._id,
+          speakerUserId: speakerUserId || null,
+          speakerMemberId: speakerMemberId || participantMemberId || null,
+          speakerRole,
+          managerId: participant?.parentId || null,
+          quote: quoteAround(text, match.index, match[0].length),
+          matchedWord: match[0],
+          severity: flagWord.severity,
+          category: flagWord.category,
+          segment: {
+            ...(segment || {}),
+            matchIndex: match.index,
+            matchLength: match[0].length,
+            transcriptCreatedAt: transcript.createdAt,
+          },
+          occurredAt: new Date(),
         },
-        occurredAt: new Date(),
-      });
-      created.push(userFlag);
-    } catch (error) {
-      if (error.code !== 11000) throw error;
-    }
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+    created.push(userFlag);
   }
 
   transcript.scannedAt = new Date();
