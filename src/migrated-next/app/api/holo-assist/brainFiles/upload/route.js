@@ -141,7 +141,9 @@ export async function GET(req) {
 
       LiveAssist.find({participantId: userId})
     ]);
-    console.log("live assist data: ",liveAssistData)
+    
+    console.log("files in brain: ",files, " for userid: ",userId);
+    // console.log("live assist data: ",liveAssistData)
     const totalCardsGenerated = liveAssistData.length;
     const totalCardsClicked = suggestionCards.length;
     console.log("totalCardsClicked: ",totalCardsClicked)
@@ -212,9 +214,9 @@ export async function GET(req) {
       
       // Additional dashboard data (default values)
       // pwr: sessions.length > 0 ? Math.min(sessions.length * 10, 100) : 0,
-      deskQuote: files.length > 0 
-        ? `Brain has ${files.length} files loaded with ${stats.totalChunks} chunks ready` 
-        : "Feed it files. Watch the Brain charge.",
+      // deskQuote: files.length > 0 
+      //   ? `Brain has ${files.length} files loaded with ${stats.totalChunks} chunks ready` 
+      //   : "Feed it files. Watch the Brain charge.",
       debriefs: [],
       playbooks: [],
       skills: [],
