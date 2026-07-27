@@ -106,9 +106,25 @@ import TranscriptRouter from "./routes/transcript.js"; // 👈 Import the new ro
 import EnterpriseRouter from "./routes/enterprise.routes.js";
 import MicAudioRouter from "./routes/mic-audio.routes.js";
 
+
+// import AiAssistantRouter from "./routes/ai-assistant.routes.js";
+// import TranscribeLiveRouter from "./routes/transcribe-live.routes.js";
+import apiKeyRoutes from './routes/apiKeyRoutes.js';
+import { apiKeyAuth } from './middlewares/apiAuth.js'
+
+
+
 console.log("✅ All routes imported!"); // 👈 Add this
 // Register routes
 console.log("📝 Registering routes..."); // 👈 Add this
+
+app.use('/api/keys', apiKeyRoutes);   // ← YEH DAALO
+
+app.use('/api/v1/ai-assistant', apiKeyAuth, AiAssistantRouter);
+app.use('/api/v1/transcribe-live', apiKeyAuth, TranscribeLiveRouter);
+
+
+
 app.use("/api/v1/", ProfileRouter);
 app.use("/api/v1/", RequestRouter);
 app.use("/api/v1/", ChatRouter);
@@ -117,8 +133,8 @@ app.use("/api/v1/", MeetingRouter); // 👈 This is where MeetingRouter is regis
 app.use("/api/v1/", MeetingMxgRouter);
 app.use("/api/v1/", AssistantInfoRouter);
 app.use("/api/v1/", VoiceRouter);
-app.use("/api/v1/", AiAssistantRouter);
-app.use("/api/v1/", TranscribeLiveRouter);
+// app.use("/api/v1/", AiAssistantRouter);
+// app.use("/api/v1/", TranscribeLiveRouter);
 app.use("/api/v1/", UploadRecordingRouter);
 app.use("/api/v1/", AnalyticsRouter);
 app.use("/api/v1/", EnterpriseRouter);

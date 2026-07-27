@@ -1,5 +1,6 @@
 import zlib from "node:zlib";
-import pdfParse from "pdf-parse/lib/pdf-parse.js";
+// import pdfParse from "pdf-parse/lib/pdf-parse.js";
+import pdfParse from 'pdf-parse';
 const stripListPrefix = (word) =>
   String(word || "").replace(/^\s*\d+[\).:-]\s*/, "").trim();
 
