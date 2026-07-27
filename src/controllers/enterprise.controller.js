@@ -4,6 +4,9 @@ import EnterpriseProfile from "../migrated-next/app/models/EnterpriseProfile.mod
 import BrainTrainingFile from "../models/enterprise/BrainTrainingFile.model.js";
 import FlagWord from "../models/enterprise/FlagWord.model.js";
 import UserFlag from "../models/enterprise/UserFlag.model.js";
+import EnterpriseKpi from "../models/enterprise/EnterpriseKpi.model.js";
+import EnterpriseCompliance from "../models/enterprise/EnterpriseCompliance.model.js";
+import EnterprisePolicy from "../models/enterprise/EnterprisePolicy.model.js";
 import MeetingTranscript from "../models/enterprise/MeetingTranscript.model.js";
 import EnterpriseMeeting from "../models/enterprise/EnterpriseMeeting.model.js";
 import MeetingModel from "../models/Meeting.model.js";
@@ -18,6 +21,53 @@ const isObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 const normalizeFlagWord = (word) => String(word || "").toLowerCase().replace(/[^\w\s'-]/g, "").trim();
 const uniqueIds = (ids) => [...new Set(ids.filter(Boolean).map((id) => String(id)))];
 const coachingMeetingId = () => `coach-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+const CATEGORY_MODELS = {
+  kpi: EnterpriseKpi,
+  compliance: EnterpriseCompliance,
+  policies: EnterprisePolicy,
+};
+
+// Imports a BrainTrainingFile's content into whichever collection its
+// category maps to: flag_words -> FlagWord ("Enterprise Flags", existing
+// behavior), kpi/compliance/policies -> their own dedicated collection.
+const importBrainFileContent = async (brainFile, actor) => {
+  if (brainFile.category === "flag_words" || !brainFile.category) {
+    const words = parseTrainingWords(brainFile.extractedText);
+    if (words.length) {
+      await FlagWord.bulkWrite(
+        words.map((word) => ({
+          updateOne: {
+            filter: { organizationId: actor.organization._id, normalizedWord: word.normalizedWord, type: word.type },
+            update: {
+              $set: {
+                word: word.word,
+                severity: word.severity,
+                category: word.category,
+                sourceFileId: brainFile._id,
+                createdBy: actor.id,
+              },
+            },
+            upsert: true,
+          },
+        })),
+        { ordered: false }
+      );
+    }
+    return words.length;
+  }
+
+  const Model = CATEGORY_MODELS[brainFile.category];
+  if (!Model || !brainFile.extractedText) return 0;
+  await Model.create({
+    organizationId: actor.organization._id,
+    sourceFileId: brainFile._id,
+    title: brainFile.originalName,
+    extractedText: brainFile.extractedText,
+    createdBy: actor.id,
+  });
+  return 1;
+};
 
 const generatedPasswordFallback = () =>
   Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -188,8 +238,10 @@ export const uploadBrainTrainingFile = async (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ success: false, error: "Training file is required" });
 
+  const category = ["kpi", "compliance", "policies"].includes(req.body.category) ? req.body.category : "flag_words";
+
   const extractedText = await extractTextFromUpload(file);
-  const words = parseTrainingWords(extractedText);
+  const words = category === "flag_words" ? parseTrainingWords(extractedText) : [];
   const brainFile = await BrainTrainingFile.create({
     organizationId: actor.organization._id,
     uploadedBy: actor.id,
@@ -197,34 +249,16 @@ export const uploadBrainTrainingFile = async (req, res) => {
     mimeType: file.mimetype,
     size: file.size,
     extractedText,
+    category,
     status: extractedText ? "ready" : "failed",
     parseError: extractedText ? "" : "Only text, csv, json, markdown, PDF, XLSX, and DOCX files are parsed right now",
     flagWordCount: words.filter((word) => word.type === "flag").length,
     permittedWordCount: words.filter((word) => word.type === "permitted").length,
   });
 
-  if (words.length) {
-    await FlagWord.bulkWrite(
-      words.map((word) => ({
-        updateOne: {
-          filter: { organizationId: actor.organization._id, normalizedWord: word.normalizedWord, type: word.type },
-          update: {
-            $set: {
-              word: word.word,
-              severity: word.severity,
-              category: word.category,
-              sourceFileId: brainFile._id,
-              createdBy: actor.id,
-            },
-          },
-          upsert: true,
-        },
-      })),
-      { ordered: false }
-    );
-  }
+  const itemsImported = await importBrainFileContent(brainFile, actor);
 
-  res.status(201).json({ success: true, data: brainFile, wordsImported: words.length });
+  res.status(201).json({ success: true, data: brainFile, wordsImported: itemsImported });
 };
 
 export const getBrainTrainingFiles = async (req, res) => {
@@ -252,8 +286,10 @@ export const suggestBrainTrainingFile = async (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ success: false, error: "A file is required" });
 
+  const category = ["kpi", "compliance", "policies"].includes(req.body.category) ? req.body.category : "flag_words";
+
   const extractedText = await extractTextFromUpload(file);
-  const words = parseTrainingWords(extractedText);
+  const words = category === "flag_words" ? parseTrainingWords(extractedText) : [];
   const suggestion = await BrainTrainingFile.create({
     organizationId: actor.organization._id,
     uploadedBy: actor.id,
@@ -261,6 +297,7 @@ export const suggestBrainTrainingFile = async (req, res) => {
     mimeType: file.mimetype,
     size: file.size,
     extractedText,
+    category,
     fileData: file.buffer,
     status: extractedText ? "ready" : "failed",
     parseError: extractedText ? "" : "Only text, csv, json, markdown, PDF, XLSX, and DOCX files are parsed right now",
@@ -346,27 +383,7 @@ export const reviewBrainSuggestion = async (req, res) => {
   await suggestion.save();
 
   if (action === "accept") {
-    const words = parseTrainingWords(suggestion.extractedText);
-    if (words.length) {
-      await FlagWord.bulkWrite(
-        words.map((word) => ({
-          updateOne: {
-            filter: { organizationId: actor.organization._id, normalizedWord: word.normalizedWord, type: word.type },
-            update: {
-              $set: {
-                word: word.word,
-                severity: word.severity,
-                category: word.category,
-                sourceFileId: suggestion._id,
-                createdBy: actor.id,
-              },
-            },
-            upsert: true,
-          },
-        })),
-        { ordered: false }
-      );
-    }
+    await importBrainFileContent(suggestion, actor);
   }
 
   const data = suggestion.toObject();

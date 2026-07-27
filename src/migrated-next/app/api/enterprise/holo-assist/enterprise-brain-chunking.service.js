@@ -1,9 +1,8 @@
-// lib/ai-assistant/brain-chunking.service.js
+// lib/ai-assistant/enterprise-brain-chunking.service.js
 
 import Anthropic from "@anthropic-ai/sdk";
-import BrainFile from "../../models/BrainFile.model.js";
-import BrainChunk from "../../models/BrainChunk.model.js";
-import { getFileFromGridFS } from "../../../lib/gridfs.js";
+import BrainTrainingFile from "../../../../../models/enterprise/BrainTrainingFile.model.js";
+import EnterpriseBrainChunk from "../../../../../models/enterprise/EnterpriseBrainChunk.model.js";
 
 const anthropic = new Anthropic({
   apiKey: process.env.CLOUDAPI,
@@ -21,309 +20,7 @@ const CHUNK_CONFIG = {
 };
 
 // =============================================
-// 2. FILE LOADERS WITH ENCRYPTION HANDLING
-// =============================================
-
-/**
- * Extract text from buffer based on file type
- */
-async function extractTextFromBuffer(buffer, fileType, fileName) {
-  if (!buffer || buffer.length === 0) return "";
-
-  const extension = fileName.split(".").pop().toLowerCase();
-
-  try {
-    switch (extension) {
-      case "pdf":
-        return await extractPDFText(buffer);
-      case "docx":
-        return await extractDOCXText(buffer);
-      case "txt":
-      case "md":
-      case "text":
-      case "csv":
-      case "json":
-      case "xml":
-        return buffer.toString("utf-8");
-      default:
-        return buffer.toString("utf-8");
-    }
-  } catch (error) {
-    console.error(`Error extracting text from ${fileName}:`, error);
-    return buffer.toString("utf-8");
-  }
-}
-
-/**
- * Extract text from PDF with encryption handling
- */
-async function extractPDFText(buffer) {
-  // First, check if PDF is encrypted
-  const isEncrypted = checkIfPDFIsEncrypted(buffer);
-  if (isEncrypted) {
-    console.log('⚠️ PDF appears to be encrypted. Trying to extract anyway...');
-  }
-
-  // Method 1: Try pdf-parse first (better for encrypted PDFs)
-  try {
-    const result = await extractPDFWithPdfParse(buffer);
-    if (result && result.trim().length > 100 && !isGarbageText(result)) {
-      console.log('✅ PDF extracted using pdf-parse');
-      return result;
-    }
-  } catch (error) {
-    console.log('pdf-parse extraction failed:', error.message);
-  }
-
-  // Method 2: Try pdf2json
-  try {
-    const result = await extractPDFWithPdf2Json(buffer);
-    if (result && result.trim().length > 100 && !isGarbageText(result)) {
-      console.log('✅ PDF extracted using pdf2json');
-      return result;
-    }
-  } catch (error) {
-    console.log('pdf2json extraction failed:', error.message);
-  }
-
-  // Method 3: Try simple text extraction
-  try {
-    const result = extractPDFTextSimple(buffer);
-    if (result && result.trim().length > 100 && !isGarbageText(result)) {
-      console.log('✅ PDF extracted using simple method');
-      return result;
-    }
-  } catch (error) {
-    console.log('Simple extraction failed:', error.message);
-  }
-
-  // If all methods fail, return a helpful message
-  console.log('❌ All PDF extraction methods failed. The PDF may be corrupted or encrypted.');
-  return "PDF content could not be extracted. Please ensure the PDF is not password protected and contains readable text.";
-}
-
-/**
- * Check if PDF is encrypted
- */
-function checkIfPDFIsEncrypted(buffer) {
-  const text = buffer.toString('utf-8', 0, 1000);
-  // Look for encryption indicators in PDF header
-  return text.includes('/Encrypt') || 
-         text.includes('/Filter') && text.includes('/Standard');
-}
-
-/**
- * Check if extracted text is garbage (encrypted or corrupted)
- */
-function isGarbageText(text) {
-  if (!text || text.length < 50) return true;
-  
-  // Count printable characters
-  const printable = text.match(/[a-zA-Z0-9\s.,!?;:()\-'"\n]/g) || [];
-  const ratio = printable.length / text.length;
-  
-  // If less than 70% printable, it's likely garbage
-  return ratio < 0.7;
-}
-
-/**
- * Extract using pdf-parse (best for most PDFs)
- */
-async function extractPDFWithPdfParse(buffer) {
-  try {
-    const pdfParse = await import('pdf-parse');
-    const parseFn = pdfParse.default || pdfParse;
-    const data = await parseFn(buffer, {
-      max: 0, // No page limit
-      version: 'v1.10.100'
-    });
-    
-    let text = data.text || "";
-    
-    // If text is garbage, throw error to try next method
-    if (isGarbageText(text)) {
-      throw new Error('Extracted text appears to be garbage/encrypted');
-    }
-    
-    return processPDFText(text);
-  } catch (error) {
-    throw new Error(`pdf-parse failed: ${error.message}`);
-  }
-}
-
-/**
- * Extract using pdf2json with safe decoding
- */
-async function extractPDFWithPdf2Json(buffer) {
-  try {
-    const PDFParser = (await import('pdf2json')).default;
-    const pdfParser = new PDFParser();
-    
-    return new Promise((resolve, reject) => {
-      pdfParser.on('pdfParser_dataReady', (pdfData) => {
-        try {
-          let fullText = '';
-          if (pdfData && pdfData.Pages) {
-            for (let pageIdx = 0; pageIdx < pdfData.Pages.length; pageIdx++) {
-              const page = pdfData.Pages[pageIdx];
-              let pageText = '';
-              
-              if (page.Texts) {
-                for (const textItem of page.Texts) {
-                  if (textItem.R) {
-                    for (const line of textItem.R) {
-                      if (line.T) {
-                        let decoded = '';
-                        try {
-                          decoded = decodeURIComponent(line.T);
-                        } catch (e) {
-                          decoded = line.T;
-                        }
-                        // Skip if decoded is garbage
-                        if (!isGarbageText(decoded)) {
-                          pageText += decoded + ' ';
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-              
-              if (pageText.trim().length > 0) {
-                fullText += `\n${pageText.trim()}\n\n`;
-              }
-            }
-          }
-          
-          // If text is garbage, reject
-          if (isGarbageText(fullText)) {
-            reject(new Error('Extracted text appears to be garbage/encrypted'));
-          }
-          
-          resolve(processPDFText(fullText));
-        } catch (error) {
-          reject(error);
-        }
-      });
-      
-      pdfParser.on('pdfParser_dataError', (error) => {
-        reject(error);
-      });
-      
-      pdfParser.parseBuffer(buffer);
-    });
-  } catch (error) {
-    throw new Error(`pdf2json failed: ${error.message}`);
-  }
-}
-
-/**
- * Simple text extraction from PDF (no dependencies)
- */
-function extractPDFTextSimple(buffer) {
-  const text = buffer.toString('utf-8');
-  const lines = text.split('\n');
-  const textLines = [];
-  
-  for (const line of lines) {
-    const trimmed = line.trim();
-    
-    // Skip PDF binary/command lines
-    if (trimmed.match(/^[0-9]+ [0-9]+ obj/) || 
-        trimmed.match(/^endobj/) ||
-        trimmed.match(/^stream/) ||
-        trimmed.match(/^endstream/) ||
-        trimmed.match(/^\/[A-Z]/) ||
-        trimmed.match(/^[0-9]+ [0-9]+ [A-Z]/) ||
-        trimmed.match(/^%PDF-/) ||
-        trimmed.match(/^%%EOF/)) {
-      continue;
-    }
-    
-    // Try to extract text from parentheses
-    const matches = trimmed.match(/\(([^)]*)\)/g);
-    if (matches) {
-      for (const match of matches) {
-        const clean = match.slice(1, -1);
-        if (clean.length > 2 && !clean.match(/^[0-9]+$/)) {
-          textLines.push(clean);
-        }
-      }
-    } else if (trimmed.length > 3 && !trimmed.match(/^[0-9]+$/)) {
-      textLines.push(trimmed);
-    }
-  }
-  
-  const result = textLines.join('\n');
-  
-  // If result is garbage, return empty
-  if (isGarbageText(result)) {
-    return "";
-  }
-  
-  return result;
-}
-
-/**
- * Process extracted PDF text to preserve structure
- */
-function processPDFText(text) {
-  if (!text) return "";
-  
-  let processed = text;
-  
-  // Remove garbage characters
-  processed = processed.replace(/[^\x20-\x7E\n\r\t]/g, ' ');
-  processed = processed.replace(/\s+/g, ' ');
-  processed = processed.replace(/\n\s*\n/g, '\n\n');
-  
-  // Try to detect and preserve headers
-  const lines = processed.split('\n');
-  const processedLines = lines.map(line => {
-    const trimmed = line.trim();
-    
-    if (trimmed.length > 0 && trimmed.length < 100) {
-      // All caps headers (but skip if it's just a page number)
-      if (trimmed === trimmed.toUpperCase() && trimmed.length > 3 && !trimmed.match(/^PAGE/i)) {
-        return `## ${trimmed}`;
-      }
-      // Title case headers
-      if (trimmed.match(/^[A-Z][a-z]+(\s+[A-Z][a-z]+)*$/) && !trimmed.match(/^Page/i)) {
-        return `## ${trimmed}`;
-      }
-      // Headers ending with colon
-      if (trimmed.endsWith(':') && trimmed.length > 3) {
-        return `## ${trimmed}`;
-      }
-    }
-    return line;
-  });
-  
-  processed = processedLines.join('\n');
-  processed = processed.replace(/\n{3,}/g, '\n\n');
-  
-  // Remove any remaining garbage
-  processed = processed.replace(/[^\x20-\x7E\n\r\t]/g, ' ');
-  
-  return processed.trim();
-}
-
-/**
- * Extract text from DOCX using mammoth
- */
-async function extractDOCXText(buffer) {
-  try {
-    const mammoth = await import('mammoth');
-    const result = await mammoth.extractRawText({ buffer });
-    return result.value || "";
-  } catch (error) {
-    console.error("DOCX extraction failed:", error);
-    return buffer.toString("utf-8");
-  }
-}
-
-// =============================================
-// 3. TOPIC EXTRACTION (Fixed)
+// 2. TOPIC EXTRACTION
 // =============================================
 
 /**
@@ -331,15 +28,13 @@ async function extractDOCXText(buffer) {
  */
 async function extractTopicsFromDocument(text, fileName) {
   try {
-    // Clean the text before sending to AI
     const cleanText = text
-      .replace(/[^\x20-\x7E\n\r\t]/g, ' ') // Remove non-printable chars
-      .replace(/\s+/g, ' ') // Normalize whitespace
+      .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+      .replace(/\s+/g, ' ')
       .trim();
     
-    // If text is too short or garbage, use fallback
-    if (cleanText.length < 100 || isGarbageText(cleanText)) {
-      console.log('Text too short or appears to be garbage, using fallback');
+    if (cleanText.length < 100) {
+      console.log('Text too short, using fallback');
       return extractTopicsFallback(text);
     }
     
@@ -378,13 +73,10 @@ IMPORTANT: Return ONLY valid JSON, no other text.`,
     });
 
     const responseText = response.content?.[0]?.text || "[]";
-    
-    // Try to extract JSON from response
     let jsonMatch = responseText.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
       try {
         const topics = JSON.parse(jsonMatch[0]);
-        // Validate topics
         if (Array.isArray(topics) && topics.length > 0 && topics[0].topic) {
           return topics;
         }
@@ -392,8 +84,6 @@ IMPORTANT: Return ONLY valid JSON, no other text.`,
         console.log('JSON parse error:', parseError.message);
       }
     }
-    
-    // If JSON parsing fails, try to extract topics manually
     return extractTopicsFallback(text);
   } catch (error) {
     console.error("Topic extraction failed:", error);
@@ -410,19 +100,15 @@ function extractTopicsFallback(text) {
   let currentTopic = null;
   let currentContent = [];
 
-  // Clean the text first
   const cleanText = text.replace(/[^\x20-\x7E\n\r\t]/g, ' ');
 
   for (const line of cleanText.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    
-    // Skip page markers and garbage
     if (trimmed.match(/^--- PAGE \d+ ---$/i)) continue;
     if (trimmed.match(/^Page \d+$/i)) continue;
     if (trimmed.length < 3) continue;
 
-    // Check for section breaks
     if (trimmed.match(/^=+$/) || trimmed.match(/^-{3,}$/) || trimmed.match(/^\*{3,}$/)) {
       if (currentTopic && currentContent.length > 0) {
         topics.push({
@@ -437,15 +123,12 @@ function extractTopicsFallback(text) {
       continue;
     }
 
-    // Enhanced header detection
     let isHeader = false;
     let headerText = null;
 
-    // All caps headers (but skip common words)
     if (trimmed.length > 3 && trimmed.length < 80 && 
         trimmed === trimmed.toUpperCase() && 
         trimmed.match(/^[A-Z][A-Z\s]+$/)) {
-      // Skip if it's not a real header (like "NOVAGRID TECHNOLOGIES" is good)
       const commonWords = ['THE', 'AND', 'FOR', 'WITH', 'THIS', 'THAT'];
       const words = trimmed.split(/\s+/);
       const hasRealContent = words.some(w => w.length > 3 && !commonWords.includes(w));
@@ -453,21 +136,16 @@ function extractTopicsFallback(text) {
         isHeader = true;
         headerText = trimmed;
       }
-    }
-    // Title case headers
-    else if (trimmed.length > 3 && trimmed.length < 80 && 
-             trimmed.match(/^[A-Z][a-z]+(\s+[A-Z][a-z]+)*$/) &&
-             !trimmed.match(/[.!?]$/)) {
+    } else if (trimmed.length > 3 && trimmed.length < 80 && 
+               trimmed.match(/^[A-Z][a-z]+(\s+[A-Z][a-z]+)*$/) &&
+               !trimmed.match(/[.!?]$/)) {
       isHeader = true;
       headerText = trimmed;
-    }
-    // Headers ending with colon
-    else if (trimmed.endsWith(':') && trimmed.length > 3 && trimmed.length < 80) {
+    } else if (trimmed.endsWith(':') && trimmed.length > 3 && trimmed.length < 80) {
       isHeader = true;
       headerText = trimmed.slice(0, -1).trim();
     }
 
-    // If we detected a header, save current topic and start new one
     if (isHeader && headerText) {
       if (currentTopic && currentContent.length > 0) {
         topics.push({
@@ -482,9 +160,7 @@ function extractTopicsFallback(text) {
       continue;
     }
 
-    // If we have a current topic, add content
     if (currentTopic) {
-      // Clean the line
       let cleanLine = trimmed
         .replace(/^[-*+]\s+/, "")
         .replace(/\*\*(.+?)\*\*/g, "$1")
@@ -492,14 +168,12 @@ function extractTopicsFallback(text) {
         .replace(/`(.+?)`/g, "$1")
         .replace(/\s{2,}/g, " ");
       
-      // Skip page numbers and garbage
       if (!cleanLine.match(/^Page\s+\d+$/i) && cleanLine.length > 2) {
         currentContent.push(cleanLine);
       }
     }
   }
 
-  // Save the last topic
   if (currentTopic && currentContent.length > 0) {
     topics.push({
       topic: currentTopic,
@@ -509,7 +183,6 @@ function extractTopicsFallback(text) {
     });
   }
 
-  // If no topics found, try splitting by sections
   if (topics.length <= 1) {
     console.log("Few topics detected, trying alternative splitting...");
     const sections = cleanText.split(/\n{2,}/);
@@ -557,7 +230,6 @@ function extractTopicsFallback(text) {
     }
   }
 
-  // If still no topics, create one generic topic
   if (topics.length === 0) {
     topics.push({
       topic: "Document Content",
@@ -571,7 +243,7 @@ function extractTopicsFallback(text) {
 }
 
 // =============================================
-// 4. CHUNKING FUNCTIONS
+// 3. CHUNKING FUNCTIONS
 // =============================================
 
 function chunkByTopics(text, topics, fileName) {
@@ -581,7 +253,6 @@ function chunkByTopics(text, topics, fileName) {
     return simpleChunking(text, fileName);
   }
 
-  // Clean text before chunking
   const cleanText = text.replace(/[^\x20-\x7E\n\r\t]/g, ' ');
 
   for (const topic of topics) {
@@ -601,9 +272,6 @@ function chunkByTopics(text, topics, fileName) {
   return chunks;
 }
 
-/**
- * Extract content related to a specific topic
- */
 function extractContentForTopic(text, topic) {
   const lines = text.split("\n");
   const relevantLines = [];
@@ -655,9 +323,6 @@ function extractContentForTopic(text, topic) {
   return relevantLines.join("\n");
 }
 
-/**
- * Split content into smaller chunks
- */
 function splitContent(content, topic) {
   const chunks = [];
   const paragraphs = content.split("\n\n");
@@ -722,9 +387,6 @@ function splitContent(content, topic) {
   return chunks;
 }
 
-/**
- * Simple fallback chunking without topics
- */
 function simpleChunking(text, fileName) {
   const chunks = [];
   const cleanText = text.replace(/[^\x20-\x7E\n\r\t]/g, ' ');
@@ -763,12 +425,9 @@ function simpleChunking(text, fileName) {
 }
 
 // =============================================
-// 5. HELPER FUNCTIONS
+// 4. HELPER FUNCTIONS
 // =============================================
 
-/**
- * Extract keywords from text
- */
 function extractKeywordsFromText(text) {
   const cleanText = text.replace(/[^\w\s]/g, ' ').toLowerCase();
   const words = cleanText
@@ -794,16 +453,10 @@ function extractKeywordsFromText(text) {
     .map(([word]) => word);
 }
 
-/**
- * Estimate token count
- */
 function estimateTokenCount(text) {
   return text.split(/\s+/).length;
 }
 
-/**
- * Detect section type
- */
 function detectSectionType(text) {
   if (text.match(/^[•●○\-*]\s/)) return "list";
   if (text.match(/^\d+\.\s/)) return "list";
@@ -813,34 +466,33 @@ function detectSectionType(text) {
 }
 
 // =============================================
-// 6. MAIN PROCESSING FUNCTION
+// 5. MAIN PROCESSING FUNCTION
 // =============================================
 
-export async function processBrainFile(fileBuffer, fileInfo, userId) {
-  const { fileName, fileType, fileSize, gridfsFileId, bucketName } = fileInfo;
+/**
+ * Process an enterprise brain training file using existing extractedText
+ */
+export async function processEnterpriseBrainFile(fileDoc) {
+  const { 
+    _id: fileId, 
+    organizationId, 
+    originalName: fileName, 
+    category, 
+    extractedText 
+  } = fileDoc;
   
   try {
-    console.log(`Processing file: ${fileName} for user: ${userId}`);
+    console.log(`🏢 Processing enterprise brain file: ${fileName} for organization: ${organizationId}`);
+    console.log(`📂 Category: ${category}`);
+    console.log(`📄 Extracted text length: ${extractedText?.length || 0} characters`);
 
-    // Step 1: Extract text from file
-    const fullText = await extractTextFromBuffer(fileBuffer, fileType, fileName);
-    
-    if (!fullText || fullText.trim().length < 10) {
-      throw new Error("File content is empty or too short");
+    if (!extractedText || extractedText.trim().length < 10) {
+      throw new Error("Extracted text is empty or too short");
     }
 
-    // Clean the text
-    const cleanText = fullText.replace(/[^\x20-\x7E\n\r\t]/g, ' ').trim();
-    
-    console.log(`Extracted ${cleanText.length} characters from ${fileName}`);
-    
-    // Debug: Show first 500 chars of extracted text
-    console.log('First 300 chars of extracted text:');
-    console.log('─'.repeat(40));
-    console.log(cleanText.slice(0, 300));
-    console.log('─'.repeat(40));
+    const cleanText = extractedText.replace(/[^\x20-\x7E\n\r\t]/g, ' ').trim();
 
-    // Step 2: Extract topics
+    // Step 1: Extract topics
     let topics = [];
     try {
       topics = await extractTopicsFromDocument(cleanText, fileName);
@@ -857,7 +509,6 @@ export async function processBrainFile(fileBuffer, fileInfo, userId) {
       !t.topic.match(/^--- PAGE \d+ ---$/i)
     );
 
-    // Log topics found
     if (topics.length > 0) {
       console.log('Topics found:');
       topics.forEach((t, i) => {
@@ -868,30 +519,30 @@ export async function processBrainFile(fileBuffer, fileInfo, userId) {
       topics = extractTopicsFallback(cleanText);
     }
 
-    // Step 3: Create chunks based on topics
+    // Step 2: Create chunks based on topics
     const chunks = chunkByTopics(cleanText, topics, fileName);
     console.log(`Created ${chunks.length} chunks`);
 
-    // Step 4: Delete existing chunks for this file
-    await BrainChunk.deleteMany({ 
-      file_id: gridfsFileId, 
-      user_id: userId 
+    // Step 3: Delete existing chunks for this file
+    await EnterpriseBrainChunk.deleteMany({ 
+      fileId: fileId, 
+      organizationId: organizationId 
     });
 
-    // Step 5: Save chunks to database
+    // Step 4: Save chunks to database with category
     const savedChunks = [];
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
-      // Clean chunk text
       const cleanChunkText = chunk.text.replace(/[^\x20-\x7E]/g, ' ').trim();
       
-      if (cleanChunkText.length < 10) continue; // Skip empty chunks
+      if (cleanChunkText.length < 10) continue;
       
       const chunkData = {
-        user_id: userId,
-        file_id: gridfsFileId,
+        organizationId: organizationId,
+        fileId: fileId,
         file_name: fileName,
         chunk_index: i,
+        category: category,
         topic: chunk.topic || "general",
         topic_header: chunk.topic_header || "General",
         topic_keywords: chunk.topic_keywords || [],
@@ -901,59 +552,40 @@ export async function processBrainFile(fileBuffer, fileInfo, userId) {
         section_type: detectSectionType(cleanChunkText),
       };
 
-      const savedChunk = await BrainChunk.create(chunkData);
+      const savedChunk = await EnterpriseBrainChunk.create(chunkData);
       savedChunks.push(savedChunk);
     }
 
-    // Step 6: Update file record
-    const updatedFile = await BrainFile.findOneAndUpdate(
-      { _id: gridfsFileId },
-      {
-        ingestion_status: "ready",
-        chunk_count: savedChunks.length,
-        parse_chars: cleanText.length,
-        last_ingested_at: new Date(),
-        ingestion_error: "",
-      },
-      { new: true }
-    );
-
-    console.log(`✅ Successfully processed ${fileName}: ${savedChunks.length} chunks`);
+    console.log(`✅ Successfully processed ${fileName}: ${savedChunks.length} chunks saved with category: ${category}`);
 
     return {
       success: true,
-      file: updatedFile,
+      fileId: fileId,
       chunks: savedChunks,
       topicsExtracted: topics.length,
       totalChunks: savedChunks.length,
+      category: category,
     };
   } catch (error) {
-    console.error(`❌ Error processing file ${fileName}:`, error);
-    
-    await BrainFile.findOneAndUpdate(
-      { _id: gridfsFileId },
-      {
-        ingestion_status: "failed",
-        ingestion_error: error.message,
-        last_ingested_at: new Date(),
-      }
-    );
-
+    console.error(`❌ Error processing enterprise file ${fileName}:`, error);
     throw error;
   }
 }
 
-export async function processMultipleBrainFiles(files, userId) {
+/**
+ * Process multiple enterprise brain files
+ */
+export async function processMultipleEnterpriseBrainFiles(fileDocs) {
   const results = [];
   
-  for (const file of files) {
+  for (const fileDoc of fileDocs) {
     try {
-      const result = await processBrainFile(file.buffer, file.info, userId);
+      const result = await processEnterpriseBrainFile(fileDoc);
       results.push(result);
     } catch (error) {
       results.push({
         success: false,
-        file: file.info.fileName,
+        file: fileDoc.originalName,
         error: error.message,
       });
     }
@@ -961,3 +593,137 @@ export async function processMultipleBrainFiles(files, userId) {
 
   return results;
 }
+
+/**
+ * Retrieve enterprise brain chunks by category and organization
+ */
+export async function retrieveEnterpriseBrainContext(organizationId, category, queryText, topK = 4) {
+  console.log(`📚 [ENTERPRISE RETRIEVAL] Fetching chunks for org: ${organizationId}, category: ${category}`);
+  
+  if (!organizationId || !category || !queryText) {
+    return [];
+  }
+
+  const queryTokens = queryText.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  
+  const allChunks = await EnterpriseBrainChunk.find({
+    organizationId: organizationId,
+    category: category,
+  })
+    .sort({ createdAt: -1 })
+    .limit(500)
+    .lean();
+
+  if (allChunks.length === 0) {
+    console.log(`No chunks found for category: ${category}`);
+    return [];
+  }
+
+  // Score chunks based on keyword overlap
+  const scoredChunks = allChunks
+    .map((chunk) => {
+      const chunkText = `${chunk.text || ""} ${(chunk.keywords || []).join(" ")}`.toLowerCase();
+      let score = 0;
+      for (const token of queryTokens) {
+        if (chunkText.includes(token)) {
+          score += 1;
+        }
+      }
+      score = score / Math.max(1, queryTokens.length);
+      
+      if (chunk.topic && queryText.toLowerCase().includes(chunk.topic.toLowerCase())) {
+        score += 0.3;
+      }
+      
+      return {
+        ...chunk,
+        _score: Math.min(score, 1.0),
+      };
+    })
+    .filter((chunk) => chunk._score >= 0.15)
+    .sort((a, b) => b._score - a._score)
+    .slice(0, topK);
+
+  console.log(`✅ Found ${scoredChunks.length} relevant chunks for category: ${category}`);
+
+  return scoredChunks.map((chunk) => ({
+    fileId: chunk.fileId,
+    fileName: chunk.file_name,
+    category: chunk.category,
+    topic: chunk.topic,
+    topicHeader: chunk.topic_header,
+    text: String(chunk.text || "").slice(0, 1000),
+    score: chunk._score,
+    keywords: chunk.keywords,
+  }));
+}
+
+/**
+ * Retrieve enterprise brain chunks by multiple categories
+ */
+export async function retrieveEnterpriseBrainContextMultiCategory(organizationId, categories, queryText, topK = 4) {
+  console.log(`📚 [ENTERPRISE RETRIEVAL] Fetching chunks for org: ${organizationId}, categories: ${categories.join(', ')}`);
+  
+  if (!organizationId || !categories || categories.length === 0 || !queryText) {
+    return [];
+  }
+
+  const queryTokens = queryText.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  
+  const allChunks = await EnterpriseBrainChunk.find({
+    organizationId: organizationId,
+    category: { $in: categories },
+  })
+    .sort({ createdAt: -1 })
+    .limit(500)
+    .lean();
+
+  if (allChunks.length === 0) {
+    console.log(`No chunks found for categories: ${categories.join(', ')}`);
+    return [];
+  }
+
+  // Score chunks based on keyword overlap
+  const scoredChunks = allChunks
+    .map((chunk) => {
+      const chunkText = `${chunk.text || ""} ${(chunk.keywords || []).join(" ")}`.toLowerCase();
+      let score = 0;
+      for (const token of queryTokens) {
+        if (chunkText.includes(token)) {
+          score += 1;
+        }
+      }
+      score = score / Math.max(1, queryTokens.length);
+      
+      if (chunk.topic && queryText.toLowerCase().includes(chunk.topic.toLowerCase())) {
+        score += 0.3;
+      }
+      
+      return {
+        ...chunk,
+        _score: Math.min(score, 1.0),
+      };
+    })
+    .filter((chunk) => chunk._score >= 0.15)
+    .sort((a, b) => b._score - a._score)
+    .slice(0, topK);
+
+  console.log(`✅ Found ${scoredChunks.length} relevant chunks across categories`);
+
+  return scoredChunks.map((chunk) => ({
+    fileId: chunk.fileId,
+    fileName: chunk.file_name,
+    category: chunk.category,
+    topic: chunk.topic,
+    topicHeader: chunk.topic_header,
+    text: String(chunk.text || "").slice(0, 1000),
+    score: chunk._score,
+    keywords: chunk.keywords,
+  }));
+}
+
+export {
+  extractTopicsFromDocument,
+  chunkByTopics,
+  extractKeywordsFromText,
+};
