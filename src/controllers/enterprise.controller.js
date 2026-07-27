@@ -14,6 +14,7 @@ import MeetingModel from "../models/Meeting.model.js";
 import { ensureOwner, requireEnterpriseActor, canManageMember } from "../services/enterprise/enterpriseAccess.service.js";
 import { buildOrgTree, getVisibleMembers } from "../services/enterprise/orgTree.service.js";
 import { extractTextFromUpload, parseTrainingWords } from "../services/enterprise/brainIngestion.service.js";
+import { processEnterpriseBrainFile } from "../migrated-next/app/api/enterprise/holo-assist/enterprise-brain-chunking.service.js";
 import { getOverviewPayload } from "../services/enterprise/overviewMetrics.service.js";
 import { scanTranscriptForFlags } from "../services/enterprise/transcriptFlagScanner.service.js";
 import sendMail from "../utils/Nodemailer.js";
@@ -438,6 +439,7 @@ export const reviewBrainSuggestion = async (req, res) => {
 
   if (action === "accept") {
     await importBrainFileContent(suggestion, actor);
+    await processEnterpriseBrainFile(suggestion);
   }
 
   const data = suggestion.toObject();
