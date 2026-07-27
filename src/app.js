@@ -23,6 +23,7 @@ const corsOptions = {
       "http://127.0.0.1:5173",
       "https://holovox.io",
       "https://www.holovox.io",
+      "https://holovoxserver-production-2d00.up.railway.app", // ✅ ADD
     ];
 
     if (!origin || allowedOrigins.includes(origin)) {
@@ -32,7 +33,7 @@ const corsOptions = {
     return callback(null, true);
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "Accept"],
+  allowedHeaders: ["Content-Type", "Authorization", "Accept", "x-api-key"],
   credentials: false,
   optionsSuccessStatus: 204,
 };
