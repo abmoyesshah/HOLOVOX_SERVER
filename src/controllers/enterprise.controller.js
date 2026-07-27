@@ -256,6 +256,7 @@ export const uploadBrainTrainingFile = async (req, res) => {
     flagWordCount: words.filter((word) => word.type === "flag").length,
     permittedWordCount: words.filter((word) => word.type === "permitted").length,
   });
+  processEnterpriseBrainFile(brainFile)
 
   const itemsImported = await importBrainFileContent(brainFile, actor);
 
