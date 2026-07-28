@@ -26,7 +26,7 @@ try {
     console.error('❌ OPENAI_API_KEY is not set in environment variables');
     throw new Error('OPENAI_API_KEY is required for transcription');
   }
-  
+
   openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY.trim(),
   });
@@ -74,7 +74,7 @@ export async function POST(req) {
 
     // ✅ FIXED: Safely log FormData without using entries()
     console.log('📥 [BACKEND] Received FormData:');
-    
+
     // Get all fields individually
     const audio = formData.get("audio");
     const roomId = formData.get("roomId");
@@ -96,19 +96,19 @@ export async function POST(req) {
       req,
       typeof candidateUserId === "string" ? candidateUserId : "",
     );
-    
+
     // ✅ If userId is empty, use participantId
     if (!userId && participantId) {
       console.log('⚠️ [BACKEND] userId empty, using participantId:', participantId);
       userId = participantId;
     }
-    
+
     // ✅ If still empty, use a default
     if (!userId) {
       console.log('⚠️ [BACKEND] No userId found, using default');
       userId = 'anonymous_user';
     }
-    
+
     console.log(`✅ [BACKEND] Final userId: ${userId}`);
 
     const sessionId =
@@ -142,7 +142,7 @@ export async function POST(req) {
     console.log('🎤 [BACKEND] Sending audio to OpenAI for transcription...');
     console.log(`  Audio size: ${buffer.length} bytes`);
     console.log(`  Audio type: ${detectedMimeType || 'audio/webm'}`);
-    
+
     let text = "";
     try {
       const transcription = await openai.audio.transcriptions.create({
@@ -150,7 +150,7 @@ export async function POST(req) {
         model: "gpt-4o-transcribe",
         language: "en",
       });
-      
+
       text = transcription.text || "";
       console.log(`✅ [BACKEND] Transcription successful: "${text.slice(0, 100)}..."`);
     } catch (transcriptionError) {
@@ -182,7 +182,7 @@ export async function POST(req) {
     }
 
     if (!text || text.trim() === "" || text.length < 10) {
-      console.log("text irrelevant: ",text);
+      console.log("text irrelevant: ", text);
       return NextResponse.json({
         success: true,
         text: "",
@@ -202,14 +202,14 @@ export async function POST(req) {
     // =============================================
 
     console.log(`🔨 [BACKEND] Building context for userId: ${userId}`);
-    
+
     const assistContext = await buildAssistContext({
       userId: userId,
       roomId: typeof roomId === "string" ? roomId : "",
       sessionId,
       queryText: text,
     });
-    
+
     const contextPrompt = buildContextPrompt(assistContext);
     // const contextPrompt = 'BAWDICSOFT   COMPANY & SERVICES OVERVIEW bawdicsoft.com Company Overview Bawdicsoft is a software development agency founded in 2018, based in Karachi, Pakistan, with a team of approximately 22 employees. The company also operates as a registered Wyoming LLC to serve US-based clients directly. Core Services Web Application Development Custom web applications built end to end, from architecture through deployment. Blockchain & Web3 Solutions Development of blockchain-based platforms and Web3 applications. AI Services AI integration and product development for clients building AI-powered platforms. Track Record 250+ projects delivered across 15+ countries since founding. Certifications ISO 27001 certified.'
     // =============================================
@@ -217,45 +217,77 @@ export async function POST(req) {
     // =============================================
 
     console.log('🤖 [BACKEND] Generating summary with Claude...');
-    
+
     let summary = "";
     try {
       const claudeResponse = await anthropic.messages.create({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 140,
 
+        // system: `
+        //     You are Holo Assist.
+
+        //     You are a real-time AI meeting assistant.
+
+        //         Use this context to guide your response:
+        //         ${contextPrompt}
+
+        //     Your job is to assist the host during the conversation.
+
+        //     Rules:
+        //         - Maximum 20 words.
+        //     - Plain text only.
+        //     - No markdown.
+        //     - No bullet points.
+        //     - Never repeat the transcript.
+        //         - Never explain your reasoning.
+        //         - Output the single most useful coaching suggestion or response.
+        //         - Priority enforcement:
+        //           1) Start from questionnaire/profile to shape tone, goals, and coaching style.
+        //           2) Use recent memory/summaries only to maintain continuity.
+        //           3) Use brain evidence only when directly relevant to current input.
+        //           4) Let the current transcript chunk decide the immediate coaching point.
+        //         `,
+
         system: `
-            You are Holo Assist.
+        You are Holo Assist — the real-time AI coaching engine inside HOLOVOX, 
+        the world's first meeting platform with a live in-meeting AI coach. You are listening to this meeting continuously. 
+        Every message you receive is the newest chunk of live transcript. 
+        Your job is to give the host one sharp, real-time coaching line: what to say, ask, avoid, or do next — based on what is actually being said right now.
+        
+        CONTEXT PROVIDED FOR THIS TURN:
+        ${contextPrompt}
+        
+        HOW TO USE THE CONTEXT ABOVE — READ CAREFULLY:
+        The context block above will be in one of three states. Identify which one applies before responding:
+        1. If it says "RELEVANT KNOWLEDGE FOUND" — the user has profile data and/or brain knowledge relevant to this exact moment. Ground your coaching line in it: match their tone, respect their goals and their "never do" list, and use the retrieved knowledge as fact. Do not contradict it.
+        2. If it says "GENERAL QUERY DETECTED" — this transcript chunk is small talk, a greeting, or has no business substance. Respond naturally and briefly using the profile for tone only; do not force in knowledge that isn't relevant here.
+        3. If it says "NO RELEVANT KNOWLEDGE" or the profile is "Not available" — there is no usable context for this user yet. In this case you must still coach: listen to the current transcript chunk and recent meeting context, and give the best real-time coaching an experienced, sharp meeting advisor would give with zero prior background on these people. Never say you lack context — just coach from what's being said.
+        
+        In every case, the current transcript chunk is what decides the actual content of your suggestion. Context (profile, memory, knowledge) only shapes HOW you say it — tone, goals, phrasing style — never a substitute for reacting to what's actually happening in the conversation right now.
+        PRIORITY ORDER when context is available:
+        1. Target user's profile — tone, goals, communication style, things to never say.
+        2. Session memory — for continuity; never repeat a suggestion already given.
+        3. Brain knowledge (personal + enterprise) — used only when directly relevant to the current line of conversation.
+        4. The current transcript chunk — this always drives the actual content of the coaching line.
 
-            You are a real-time AI meeting assistant.
+        OUTPUT RULES:
+        - Maximum 20 words.
+        - Plain text only — no markdown, no bullets, no labels like "Suggestion:".
+        - Never repeat, quote, or paraphrase the transcript back to the user.
+        - Never explain your reasoning or mention "context," "profile," "knowledge base," or "transcript."
+        - Never produce generic filler like "I'm ready to assist" or "let me know if you need help."
+        - If there is genuinely nothing useful to say yet, respond with nothing rather than filler.
+        - One clear, concrete, actionable line — no hedging, no "you could consider."
+        `,
 
-                Use this context to guide your response:
-                ${contextPrompt}
-
-            Your job is to assist the host during the conversation.
-
-            Rules:
-                - Maximum 20 words.
-            - Plain text only.
-            - No markdown.
-            - No bullet points.
-            - Never repeat the transcript.
-                - Never explain your reasoning.
-                - Output the single most useful coaching suggestion or response.
-                - Priority enforcement:
-                  1) Start from questionnaire/profile to shape tone, goals, and coaching style.
-                  2) Use recent memory/summaries only to maintain continuity.
-                  3) Use brain evidence only when directly relevant to current input.
-                  4) Let the current transcript chunk decide the immediate coaching point.
-                `,
-
-                    messages: [
-                      {
-                        role: "user",
-                        content: text,
-                      },
-                    ],
-                  });
+        messages: [
+          {
+            role: "user",
+            content: text,
+          },
+        ],
+      });
 
       summary = claudeResponse.content?.[0]?.text || "";
       console.log(`✅ [BACKEND] Summary generated: "${summary.slice(0, 50)}..."`);
@@ -297,7 +329,7 @@ export async function POST(req) {
 
     // Save memory with proper userId
     console.log(`💾 [BACKEND] Saving memory for userId: ${userId}`);
-    
+
     await saveAssistMemory({
       userId: userId,
       roomId: typeof roomId === "string" ? roomId : "",
@@ -327,15 +359,15 @@ export async function POST(req) {
       type: savedSummary?.type || "general",
       card: savedSummary
         ? {
-            id: savedSummary._id?.toString?.() || String(savedSummary._id),
-            type: savedSummary.type,
-            text: savedSummary.summary,
-            timestamp: savedSummary.createdAt,
-            sessionId: savedSummary.sessionId,
-            participantName: savedSummary.participantName,
-            participantId: savedSummary.participantId,
-            wordCount: savedSummary.wordCount,
-          }
+          id: savedSummary._id?.toString?.() || String(savedSummary._id),
+          type: savedSummary.type,
+          text: savedSummary.summary,
+          timestamp: savedSummary.createdAt,
+          sessionId: savedSummary.sessionId,
+          participantName: savedSummary.participantName,
+          participantId: savedSummary.participantId,
+          wordCount: savedSummary.wordCount,
+        }
         : null,
       sessionId,
       audioBytes: buffer.length,
@@ -345,12 +377,12 @@ export async function POST(req) {
       })) || [],
       savedSummary: savedSummary
         ? {
-            id: savedSummary._id,
-            type: savedSummary.type,
-            wordCount: savedSummary.wordCount,
-            createdAt: savedSummary.createdAt,
-            sessionId: savedSummary.sessionId,
-          }
+          id: savedSummary._id,
+          type: savedSummary.type,
+          wordCount: savedSummary.wordCount,
+          createdAt: savedSummary.createdAt,
+          sessionId: savedSummary.sessionId,
+        }
         : null,
       summaryError: summaryError,
     });
