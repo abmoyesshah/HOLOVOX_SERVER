@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import mongoose from "mongoose";
 import EnterpriseProfile from "../migrated-next/app/models/EnterpriseProfile.model.js";
 import BrainTrainingFile from "../models/enterprise/BrainTrainingFile.model.js";
+import EnterpriseBrainChunk from "../models/enterprise/EnterpriseBrainChunk.model.js";
 import FlagWord from "../models/enterprise/FlagWord.model.js";
 import UserFlag from "../models/enterprise/UserFlag.model.js";
 import EnterpriseKpi from "../models/enterprise/EnterpriseKpi.model.js";
@@ -271,6 +272,74 @@ export const getBrainTrainingFiles = async (req, res) => {
     reviewStatus: { $nin: ["pending", "rejected"] },
   }).sort({ createdAt: -1 }).lean();
   res.status(200).json({ success: true, data: files });
+};
+
+// GET /enterprise/brain/files/:id/view - owner-only preview of a loaded
+// source: serves the original file bytes when we still have them (accepted
+// manager suggestions), otherwise falls back to the extracted text since
+// owner-direct uploads never persist the raw file.
+export const viewBrainTrainingFile = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+  if (!ensureOwner(actor, res)) return;
+
+  const { id } = req.params;
+  if (!isObjectId(id)) return res.status(400).json({ success: false, error: "Invalid file id" });
+
+  const file = await BrainTrainingFile.findOne({
+    _id: id,
+    organizationId: actor.organization._id,
+  }).select("+fileData");
+  if (!file) return res.status(404).json({ success: false, error: "File not found" });
+
+  if (file.fileData) {
+    res.set("Content-Type", file.mimeType || "application/octet-stream");
+    res.set("Content-Disposition", `inline; filename="${encodeURIComponent(file.originalName)}"`);
+    return res.send(file.fileData);
+  }
+
+  res.status(200).json({
+    success: true,
+    data: {
+      id: file._id,
+      originalName: file.originalName,
+      category: file.category,
+      extractedText: file.extractedText,
+    },
+  });
+};
+
+// DELETE /enterprise/brain/files/:id - owner-only. Removes the source file
+// and cascades to everything it fed: the chunked/retrieval text
+// (EnterpriseBrainChunk) and whichever category collection its content was
+// imported into (FlagWord for flag_words, or the matching KPI/Compliance/
+// Policy record), mirroring importBrainFileContent's category mapping.
+export const deleteBrainTrainingFile = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+  if (!ensureOwner(actor, res)) return;
+
+  const { id } = req.params;
+  if (!isObjectId(id)) return res.status(400).json({ success: false, error: "Invalid file id" });
+
+  const file = await BrainTrainingFile.findOneAndDelete({
+    _id: id,
+    organizationId: actor.organization._id,
+  });
+  if (!file) return res.status(404).json({ success: false, error: "File not found" });
+
+  await EnterpriseBrainChunk.deleteMany({ fileId: file._id, organizationId: actor.organization._id });
+
+  if (file.category === "flag_words" || !file.category) {
+    await FlagWord.deleteMany({ sourceFileId: file._id, organizationId: actor.organization._id });
+  } else {
+    const Model = CATEGORY_MODELS[file.category];
+    if (Model) {
+      await Model.deleteMany({ sourceFileId: file._id, organizationId: actor.organization._id });
+    }
+  }
+
+  res.status(200).json({ success: true, data: { id: file._id } });
 };
 
 // Manager -> owner "suggest a file for the Company Brain" workflow. Suggested
