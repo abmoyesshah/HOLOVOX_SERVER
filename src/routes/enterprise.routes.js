@@ -4,8 +4,10 @@ import {
   createEnterpriseUser,
   createEnterpriseCoachingMeeting,
   createFlagWord,
+  deleteBrainTrainingFile,
   deleteEnterpriseUser,
   deleteFlagWord,
+  downloadBrainTrainingFile,
   getBrainTrainingFiles,
   getBrainSuggestions,
   getBrainSuggestionFile,
@@ -40,6 +42,8 @@ router.delete("/enterprise/users/:id", asyncRoute(deleteEnterpriseUser));
 router.get("/enterprise/brain/files", asyncRoute(getBrainTrainingFiles));
 router.delete("/enterprise/brain/files", asyncRoute(deleteBrainTrainingFiles));
 router.post("/enterprise/brain/files", upload.single("file"), asyncRoute(uploadBrainTrainingFile));
+router.get("/enterprise/brain/files/:id/download", asyncRoute(downloadBrainTrainingFile));
+router.delete("/enterprise/brain/files/:id", asyncRoute(deleteBrainTrainingFile));
 
 router.get("/enterprise/brain/suggestions", asyncRoute(getBrainSuggestions));
 router.post("/enterprise/brain/suggestions", upload.single("file"), asyncRoute(suggestBrainTrainingFile));

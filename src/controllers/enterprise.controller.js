@@ -32,7 +32,10 @@ const CATEGORY_MODELS = {
 
 // Imports a BrainTrainingFile's content into whichever collection its
 // category maps to: flag_words -> FlagWord ("Enterprise Flags", existing
-// behavior), kpi/compliance/policies -> their own dedicated collection.
+// behavior). "brain" (Company Brain) has no dedicated collection - it only
+// feeds EnterpriseBrainChunk via processEnterpriseBrainFile, so this is a
+// no-op for it. kpi/compliance/policies are legacy categories kept only so
+// old BrainTrainingFile documents still resolve; no new upload uses them.
 const importBrainFileContent = async (brainFile, actor) => {
   if (brainFile.category === "flag_words" || !brainFile.category) {
     const words = parseTrainingWords(brainFile.extractedText);
@@ -240,7 +243,7 @@ export const uploadBrainTrainingFile = async (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ success: false, error: "Training file is required" });
 
-  const category = ["kpi", "compliance", "policies"].includes(req.body.category) ? req.body.category : "flag_words";
+  const category = req.body.category === "brain" ? "brain" : "flag_words";
 
   const extractedText = await extractTextFromUpload(file);
   const words = category === "flag_words" ? parseTrainingWords(extractedText) : [];
@@ -251,6 +254,7 @@ export const uploadBrainTrainingFile = async (req, res) => {
     mimeType: file.mimetype,
     size: file.size,
     extractedText,
+    fileData: file.buffer,
     category,
     status: extractedText ? "ready" : "failed",
     parseError: extractedText ? "" : "Only text, csv, json, markdown, PDF, XLSX, and DOCX files are parsed right now",
@@ -261,7 +265,9 @@ export const uploadBrainTrainingFile = async (req, res) => {
 
   const itemsImported = await importBrainFileContent(brainFile, actor);
 
-  res.status(201).json({ success: true, data: brainFile, wordsImported: itemsImported });
+  const data = brainFile.toObject();
+  delete data.fileData;
+  res.status(201).json({ success: true, data, wordsImported: itemsImported });
 };
 
 export const getBrainTrainingFiles = async (req, res) => {
@@ -327,6 +333,64 @@ export const deleteBrainTrainingFiles = async (req, res) => {
   }
 };
 
+// GET /enterprise/brain/files/:id/download - owner-only download of the
+// original uploaded file bytes. Files uploaded before fileData was persisted
+// for owner-direct uploads won't have a copy on record and return 404.
+export const downloadBrainTrainingFile = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+  if (!ensureOwner(actor, res)) return;
+
+  const { id } = req.params;
+  if (!isObjectId(id)) return res.status(400).json({ success: false, error: "Invalid file id" });
+
+  const file = await BrainTrainingFile.findOne({
+    _id: id,
+    organizationId: actor.organization._id,
+  }).select("+fileData");
+  if (!file) return res.status(404).json({ success: false, error: "File not found" });
+  if (!file.fileData) {
+    return res.status(404).json({ success: false, error: "Original file is not available for this source" });
+  }
+
+  res.set("Content-Type", file.mimeType || "application/octet-stream");
+  res.set("Content-Disposition", `attachment; filename="${encodeURIComponent(file.originalName)}"`);
+  res.send(file.fileData);
+};
+
+// DELETE /enterprise/brain/files/:id - owner-only. Removes the source file
+// and cascades to everything it fed: the chunked/retrieval text
+// (EnterpriseBrainChunk) and whichever category collection its content was
+// imported into (FlagWord for flag_words, or the matching KPI/Compliance/
+// Policy record), mirroring importBrainFileContent's category mapping.
+export const deleteBrainTrainingFile = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+  if (!ensureOwner(actor, res)) return;
+
+  const { id } = req.params;
+  if (!isObjectId(id)) return res.status(400).json({ success: false, error: "Invalid file id" });
+
+  const file = await BrainTrainingFile.findOneAndDelete({
+    _id: id,
+    organizationId: actor.organization._id,
+  });
+  if (!file) return res.status(404).json({ success: false, error: "File not found" });
+
+  await EnterpriseBrainChunk.deleteMany({ fileId: file._id, organizationId: actor.organization._id });
+
+  if (file.category === "flag_words" || !file.category) {
+    await FlagWord.deleteMany({ sourceFileId: file._id, organizationId: actor.organization._id });
+  } else {
+    const Model = CATEGORY_MODELS[file.category];
+    if (Model) {
+      await Model.deleteMany({ sourceFileId: file._id, organizationId: actor.organization._id });
+    }
+  }
+
+  res.status(200).json({ success: true, data: { id: file._id } });
+};
+
 // Manager -> owner "suggest a file for the Company Brain" workflow. Suggested
 // files live in the same BrainTrainingFile collection as owner uploads (so
 // accepting one just flips it into the normal Brain listing), but start life
@@ -342,7 +406,7 @@ export const suggestBrainTrainingFile = async (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ success: false, error: "A file is required" });
 
-  const category = ["kpi", "compliance", "policies"].includes(req.body.category) ? req.body.category : "flag_words";
+  const category = req.body.category === "brain" ? "brain" : "flag_words";
 
   const extractedText = await extractTextFromUpload(file);
   const words = category === "flag_words" ? parseTrainingWords(extractedText) : [];

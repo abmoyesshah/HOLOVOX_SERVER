@@ -23,13 +23,14 @@ const BrainTrainingFileSchema = new mongoose.Schema(
       default: "application/octet-stream",
       trim: true,
     },
-    // What kind of content this file was uploaded as. Determines which
-    // downstream collection the extracted content is imported into:
-    // flag_words -> FlagWord/UserFlag ("Enterprise Flags"), kpi -> EnterpriseKpi,
-    // compliance -> EnterpriseCompliance, policies -> EnterprisePolicy.
+    // What kind of content this file was uploaded as. flag_words -> FlagWord/
+    // UserFlag ("Enterprise Flags"); brain -> Company Brain knowledge (no
+    // dedicated collection, just chunked into EnterpriseBrainChunk for
+    // retrieval). kpi/compliance/policies are legacy values kept in the enum
+    // so pre-existing documents remain valid; new uploads no longer use them.
     category: {
       type: String,
-      enum: ["flag_words", "kpi", "compliance", "policies"],
+      enum: ["flag_words", "brain", "kpi", "compliance", "policies"],
       default: "flag_words",
       index: true,
     },

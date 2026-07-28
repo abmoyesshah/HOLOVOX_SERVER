@@ -24,10 +24,11 @@ const EnterpriseBrainChunkSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
-    // Category from the parent file
+    // Category from the parent file. kpi/compliance/policies are legacy
+    // values kept for pre-existing chunks; new files use flag_words or brain.
     category: {
       type: String,
-      enum: ["flag_words", "kpi", "compliance", "policies"],
+      enum: ["flag_words", "brain", "kpi", "compliance", "policies"],
       required: true,
       index: true,
     },

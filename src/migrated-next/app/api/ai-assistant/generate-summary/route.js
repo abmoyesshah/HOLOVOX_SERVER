@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import connectDB from "../../../../lib/db.js";
 import Summary from "../../../../app/models/Summaries.model.js";
 import Event from "../../../../app/models/Event.model.js";
+import { recordCoachingSignals } from "../../../../lib/coaching-signals.js";
 
 export const runtime = "nodejs";
 
@@ -123,6 +124,20 @@ Please provide a concise summary of this meeting.
       color: "magenta",
       actionLink: `/dashboard/meetings`,
     });
+
+    // Best-effort: derive skill scores / win-journal entry from this transcript
+    // so the dashboard's "Skill trajectory" and "Win journal" widgets have real
+    // data. Never blocks or fails the summary response.
+    try {
+      const conversationLog = transcripts
+        .filter((t) => t.text && t.text !== "[NO SPEECH DETECTED]")
+        .map((t) => `${t.participantName || "Unknown"}: ${t.text}`)
+        .join("\n");
+      await recordCoachingSignals(userId, conversationLog);
+    } catch (err) {
+      console.error("COACHING SIGNALS WRITE ERROR:", err);
+    }
+
     return NextResponse.json(
       {
         success: true,
