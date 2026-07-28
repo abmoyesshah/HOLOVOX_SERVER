@@ -32,7 +32,10 @@ const CATEGORY_MODELS = {
 
 // Imports a BrainTrainingFile's content into whichever collection its
 // category maps to: flag_words -> FlagWord ("Enterprise Flags", existing
-// behavior), kpi/compliance/policies -> their own dedicated collection.
+// behavior). "brain" (Company Brain) has no dedicated collection - it only
+// feeds EnterpriseBrainChunk via processEnterpriseBrainFile, so this is a
+// no-op for it. kpi/compliance/policies are legacy categories kept only so
+// old BrainTrainingFile documents still resolve; no new upload uses them.
 const importBrainFileContent = async (brainFile, actor) => {
   if (brainFile.category === "flag_words" || !brainFile.category) {
     const words = parseTrainingWords(brainFile.extractedText);
@@ -240,7 +243,7 @@ export const uploadBrainTrainingFile = async (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ success: false, error: "Training file is required" });
 
-  const category = ["kpi", "compliance", "policies"].includes(req.body.category) ? req.body.category : "flag_words";
+  const category = req.body.category === "brain" ? "brain" : "flag_words";
 
   const extractedText = await extractTextFromUpload(file);
   const words = category === "flag_words" ? parseTrainingWords(extractedText) : [];
@@ -350,7 +353,7 @@ export const suggestBrainTrainingFile = async (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ success: false, error: "A file is required" });
 
-  const category = ["kpi", "compliance", "policies"].includes(req.body.category) ? req.body.category : "flag_words";
+  const category = req.body.category === "brain" ? "brain" : "flag_words";
 
   const extractedText = await extractTextFromUpload(file);
   const words = category === "flag_words" ? parseTrainingWords(extractedText) : [];

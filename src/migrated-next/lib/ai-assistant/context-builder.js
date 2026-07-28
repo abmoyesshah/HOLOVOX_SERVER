@@ -7,6 +7,7 @@ import AssistSessionMemory from "../../app/models/AssistSessionMemory.model.js";
 import Meeting from "../../app/models/Meeting.model.js";
 import EnterpriseMeeting from "../../../models/enterprise/EnterpriseMeeting.model.js";
 import EnterpriseBrainChunk from "../../../models/enterprise/EnterpriseBrainChunk.model.js";
+import EnterpriseOrganization from "../../../models/enterprise/EnterpriseOrganization.model.js";
 import EnterpriseProfile from "../../app/models/EnterpriseProfile.model.js";
 import { tokenize } from "./text-utils.js";
 import { retrieveEnterpriseBrainContextMultiCategory } from "../../app/api/enterprise/holo-assist/enterprise-brain-chunking.service.js";
@@ -109,6 +110,29 @@ function scoreChunkByTopic(chunk, topics, queryTokens) {
   const finalScore = (topicScore / Math.max(1, topics.length * 2)) + (tokenScore * 0.5);
   
   return Math.min(finalScore, 1.0);
+}
+
+// Collapses chunks whose text is essentially the same fact (e.g. a rep's
+// personal copy of a pricing sheet also present in the Company Brain).
+// Keeps the first occurrence in the given order, so callers should sort by
+// score/priority *before* deduping to keep the best-ranked copy.
+function dedupeChunksByText(chunks) {
+  const seen = new Set();
+  const deduped = [];
+
+  for (const chunk of chunks) {
+    const signature = String(chunk.text || "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 200);
+
+    if (signature && seen.has(signature)) continue;
+    if (signature) seen.add(signature);
+    deduped.push(chunk);
+  }
+
+  return deduped;
 }
 
 function scoreChunkByTokens(chunk, queryTokens) {
@@ -443,27 +467,49 @@ async function identifyTargetUser(queryText, roomId, currentUserId) {
 // 4. ENTERPRISE USER HELPERS
 // =============================================
 
-async function isEnterpriseUser(userId) {
-  try {
-    const profile = await EnterpriseProfile.findOne({ 
-      $or: [{ userId: userId }, { _id: userId }] 
-    }).lean();
-    return !!profile;
-  } catch (error) {
-    console.error('Error checking enterprise user:', error);
-    return false;
-  }
-}
-
+// Resolves a user's organization whether they are a manager/rep
+// (EnterpriseProfile.organizationId) or the org Owner, who has no
+// EnterpriseProfile record and is instead the Profile that owns an
+// EnterpriseOrganization (EnterpriseOrganization.ownerId).
 async function getEnterpriseOrganizationId(userId) {
   try {
-    const profile = await EnterpriseProfile.findOne({ 
-      $or: [{ userId: userId }, { _id: userId }] 
+    const profile = await EnterpriseProfile.findOne({
+      $or: [{ userId: userId }, { _id: userId }]
     }).select('organizationId').lean();
-    return profile?.organizationId || null;
+    if (profile?.organizationId) return profile.organizationId;
+
+    const organization = await EnterpriseOrganization.findOne({ ownerId: userId })
+      .select('_id')
+      .lean();
+    return organization?._id || null;
   } catch (error) {
     console.error('Error getting enterprise organization:', error);
     return null;
+  }
+}
+
+async function isEnterpriseUser(userId) {
+  const organizationId = await getEnterpriseOrganizationId(userId);
+  return !!organizationId;
+}
+
+// All user ids that belong to an organization: the owner (a Profile, not an
+// EnterpriseProfile) plus every manager/rep EnterpriseProfile in that org.
+// Used to scope the "no target identified" fallback so it never reaches
+// into another organization's or an unaffiliated user's personal chunks.
+async function getOrganizationUserIds(organizationId) {
+  try {
+    const [organization, members] = await Promise.all([
+      EnterpriseOrganization.findById(organizationId).select('ownerId').lean(),
+      EnterpriseProfile.find({ organizationId }).select('_id').lean(),
+    ]);
+
+    const ids = members.map((member) => member._id.toString());
+    if (organization?.ownerId) ids.push(organization.ownerId.toString());
+    return [...new Set(ids)];
+  } catch (error) {
+    console.error('Error listing organization members:', error);
+    return [];
   }
 }
 
@@ -495,16 +541,22 @@ async function retrieveBrainContextMerged(userId, queryText, roomId, topK = BRAI
   const isEnterprise = await isEnterpriseUser(targetUserId);
   console.log(`🏢 Is Enterprise User: ${isEnterprise}`);
 
-  // Get all users who have chunks
-  const usersWithChunks = await BrainChunk.distinct('user_id');
-  console.log(`📊 Users with personal chunks: ${usersWithChunks.join(', ') || 'none'}`);
-
   // Build list of user IDs to search for personal chunks
   let userIdsToSearch = [targetUserId];
 
   if (targetUserId === userId) {
-    console.log(`⚠️ Using speaker as fallback, including all users with chunks...`);
-    userIdsToSearch = [...userIdsToSearch, ...usersWithChunks];
+    // No specific target was identified - widen the search, but only to
+    // people in the speaker's own organization. Never fall back to a
+    // platform-wide user list: that would leak other organizations' (or
+    // unaffiliated users') personal brains into this answer.
+    const speakerOrganizationId = await getEnterpriseOrganizationId(userId);
+    if (speakerOrganizationId) {
+      console.log(`⚠️ Using speaker as fallback, including org peers of ${speakerOrganizationId}...`);
+      const orgUserIds = await getOrganizationUserIds(speakerOrganizationId);
+      userIdsToSearch = [...userIdsToSearch, ...orgUserIds];
+    } else {
+      console.log(`⚠️ Using speaker as fallback, speaker has no organization - personal chunks only`);
+    }
   }
 
   userIdsToSearch = [...new Set(userIdsToSearch)];
@@ -532,7 +584,10 @@ async function retrieveBrainContextMerged(userId, queryText, roomId, topK = BRAI
     console.log(`🏢 Organization ID: ${organizationId}`);
 
     if (organizationId) {
-      const categories = ['flag_words', 'kpi', 'compliance', 'policies'];
+      // 'kpi'/'compliance'/'policies' are legacy categories - no new upload
+      // creates them, but older chunks may still carry those values, so they
+      // stay in the query to keep retrieving previously-uploaded content.
+      const categories = ['flag_words', 'brain', 'kpi', 'compliance', 'policies'];
       console.log(`🔍 Searching enterprise brain chunks for organization: ${organizationId}`);
       console.log(`📂 Categories: ${categories.join(', ')}`);
 
@@ -564,7 +619,7 @@ async function retrieveBrainContextMerged(userId, queryText, roomId, topK = BRAI
   const detectedTopics = await detectTopicsFromText(queryText);
   console.log(`🎯 Detected topics: ${detectedTopics.join(", ")}`);
 
-  const scoredChunks = allChunks
+  const rankedChunks = allChunks
     .map((chunk) => {
       // For personal chunks
       if (chunk.user_id) {
@@ -627,10 +682,11 @@ async function retrieveBrainContextMerged(userId, queryText, roomId, topK = BRAI
       if (a._isEnterprise && !b._isEnterprise) return -1;
       if (!a._isEnterprise && b._isEnterprise) return 1;
       return b._score - a._score;
-    })
-    .slice(0, topK);
+    });
 
-  console.log(`✅ [BRAIN RETRIEVAL] ${scoredChunks.length} chunks selected`);
+  const scoredChunks = dedupeChunksByText(rankedChunks).slice(0, topK);
+
+  console.log(`✅ [BRAIN RETRIEVAL] ${scoredChunks.length} chunks selected (deduped from ${rankedChunks.length} ranked candidates)`);
 
   const formattedChunks = scoredChunks.map((chunk) => {
     if (chunk._isEnterprise) {
@@ -1027,4 +1083,6 @@ export {
   isGeneralQuery,
   isEnterpriseUser,
   getEnterpriseOrganizationId,
+  getOrganizationUserIds,
+  dedupeChunksByText,
 };
