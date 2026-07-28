@@ -1,7 +1,12 @@
 import BrainTrainingFile from "../../models/enterprise/BrainTrainingFile.model.js";
 import UserFlag from "../../models/enterprise/UserFlag.model.js";
 import MeetingTranscript from "../../models/enterprise/MeetingTranscript.model.js";
+import BrainFile from "../../migrated-next/app/models/BrainFile.model.js";
 import { buildOrgTree } from "./orgTree.service.js";
+
+// Matches the per-rep "files * 15%" formula used on the rep dashboard (UserDashboardPage.tsx)
+const personalBrainPctForCount = (count) => Math.min(100, count * 15);
+const average = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0);
 
 export const getOverviewPayload = async (actor) => {
   const { members } = await buildOrgTree(actor);
@@ -43,6 +48,27 @@ export const getOverviewPayload = async (actor) => {
     .limit(8)
     .lean();
 
+  const companyBrainReadiness = Math.min(100, Math.round((brainFiles.length / 8) * 100));
+
+  const personalBrainFiles = memberIds.length
+    ? await BrainFile.find({
+        user_id: { $in: memberIds.map((id) => String(id)) },
+        ingestion_status: "ready",
+      })
+        .select("user_id")
+        .lean()
+    : [];
+  const personalBrainCountsByMember = personalBrainFiles.reduce((acc, file) => {
+    acc[file.user_id] = (acc[file.user_id] || 0) + 1;
+    return acc;
+  }, {});
+  const personalBrainReadiness = memberIds.length
+    ? Math.round(
+        average(memberIds.map((id) => personalBrainPctForCount(personalBrainCountsByMember[String(id)] || 0))),
+      )
+    : 0;
+  const combinedBrainReadiness = Math.round(companyBrainReadiness * 0.7 + personalBrainReadiness * 0.3);
+
   const divisions = managers.length
     ? managers.map((manager) => {
         const managerReps = reps.filter((rep) => String(rep.parentId || "") === String(manager._id));
@@ -76,6 +102,11 @@ export const getOverviewPayload = async (actor) => {
       { value: String(reps.length), label: "Active reps", delta: `${members.filter((member) => member.status === "active").length} active members`, deltaType: "up" },
     ],
     divisions,
+    brainReadiness: {
+      company: companyBrainReadiness,
+      personal: personalBrainReadiness,
+      combined: combinedBrainReadiness,
+    },
     brainSources: brainFiles.map((file) => ({
       id: String(file._id),
       name: file.originalName,

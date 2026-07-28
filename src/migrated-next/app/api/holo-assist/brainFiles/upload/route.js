@@ -212,8 +212,8 @@ export async function GET(req) {
       
       // Additional dashboard data (default values)
       // pwr: sessions.length > 0 ? Math.min(sessions.length * 10, 100) : 0,
-      deskQuote: files.length > 0 
-        ? `Brain has ${files.length} files loaded with ${stats.totalChunks} chunks ready` 
+      deskQuote: files.length > 0
+        ? `Brain has ${files.length} files loaded with ${files.reduce((sum, f) => sum + (f.chunk_count || 0), 0)} chunks ready`
         : "Feed it files. Watch the Brain charge.",
       debriefs: [],
       playbooks: [],
