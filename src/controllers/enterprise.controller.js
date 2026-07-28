@@ -251,6 +251,7 @@ export const uploadBrainTrainingFile = async (req, res) => {
     mimeType: file.mimetype,
     size: file.size,
     extractedText,
+    fileData: file.buffer,
     category,
     status: extractedText ? "ready" : "failed",
     parseError: extractedText ? "" : "Only text, csv, json, markdown, PDF, XLSX, and DOCX files are parsed right now",
@@ -261,7 +262,9 @@ export const uploadBrainTrainingFile = async (req, res) => {
 
   const itemsImported = await importBrainFileContent(brainFile, actor);
 
-  res.status(201).json({ success: true, data: brainFile, wordsImported: itemsImported });
+  const data = brainFile.toObject();
+  delete data.fileData;
+  res.status(201).json({ success: true, data, wordsImported: itemsImported });
 };
 
 export const getBrainTrainingFiles = async (req, res) => {
@@ -274,11 +277,10 @@ export const getBrainTrainingFiles = async (req, res) => {
   res.status(200).json({ success: true, data: files });
 };
 
-// GET /enterprise/brain/files/:id/view - owner-only preview of a loaded
-// source: serves the original file bytes when we still have them (accepted
-// manager suggestions), otherwise falls back to the extracted text since
-// owner-direct uploads never persist the raw file.
-export const viewBrainTrainingFile = async (req, res) => {
+// GET /enterprise/brain/files/:id/download - owner-only download of the
+// original uploaded file bytes. Files uploaded before fileData was persisted
+// for owner-direct uploads won't have a copy on record and return 404.
+export const downloadBrainTrainingFile = async (req, res) => {
   const actor = await requireEnterpriseActor(req, res);
   if (!actor) return;
   if (!ensureOwner(actor, res)) return;
@@ -291,22 +293,13 @@ export const viewBrainTrainingFile = async (req, res) => {
     organizationId: actor.organization._id,
   }).select("+fileData");
   if (!file) return res.status(404).json({ success: false, error: "File not found" });
-
-  if (file.fileData) {
-    res.set("Content-Type", file.mimeType || "application/octet-stream");
-    res.set("Content-Disposition", `inline; filename="${encodeURIComponent(file.originalName)}"`);
-    return res.send(file.fileData);
+  if (!file.fileData) {
+    return res.status(404).json({ success: false, error: "Original file is not available for this source" });
   }
 
-  res.status(200).json({
-    success: true,
-    data: {
-      id: file._id,
-      originalName: file.originalName,
-      category: file.category,
-      extractedText: file.extractedText,
-    },
-  });
+  res.set("Content-Type", file.mimeType || "application/octet-stream");
+  res.set("Content-Disposition", `attachment; filename="${encodeURIComponent(file.originalName)}"`);
+  res.send(file.fileData);
 };
 
 // DELETE /enterprise/brain/files/:id - owner-only. Removes the source file
