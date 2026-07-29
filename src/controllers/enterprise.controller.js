@@ -11,6 +11,7 @@ import EnterprisePolicy from "../models/enterprise/EnterprisePolicy.model.js";
 import MeetingTranscript from "../models/enterprise/MeetingTranscript.model.js";
 import EnterpriseMeeting from "../models/enterprise/EnterpriseMeeting.model.js";
 import MeetingModel from "../models/Meeting.model.js";
+import EnterpriseKnock from "../models/enterprise/EnterpriseKnock.model.js";
 import { ensureOwner, requireEnterpriseActor, canManageMember } from "../services/enterprise/enterpriseAccess.service.js";
 import { buildOrgTree, getVisibleMembers } from "../services/enterprise/orgTree.service.js";
 import { extractTextFromUpload, parseTrainingWords } from "../services/enterprise/brainIngestion.service.js";
@@ -84,6 +85,13 @@ const welcomeEmail = ({ fullName, email, password, role }) => `
     <p>Your ${role === "manager" ? "manager" : "rep"} account has been created.</p>
     <p><strong>Email:</strong> ${email}</p>
     <p><strong>Password:</strong> ${password}</p>
+  </div>
+`;
+
+const knockEmail = ({ fromName, message }) => `
+  <div style="font-family:Arial,sans-serif;line-height:1.6;color:#18181b">
+    <h2>${fromName} knocked on your door</h2>
+    <p style="white-space:pre-wrap">${message}</p>
   </div>
 `;
 
@@ -233,6 +241,41 @@ export const deleteEnterpriseUser = async (req, res) => {
   await EnterpriseProfile.deleteOne({ _id: target._id });
 
   res.status(200).json({ success: true, data: { id: target._id, reassignedReps } });
+};
+
+export const knockEnterpriseUser = async (req, res) => {
+  const actor = await requireEnterpriseActor(req, res);
+  if (!actor) return;
+
+  const { id } = req.params;
+  const message = String(req.body.message || "").trim();
+  if (!isObjectId(id)) return res.status(400).json({ success: false, error: "Invalid user id" });
+  if (!message) return res.status(400).json({ success: false, error: "Message is required" });
+
+  const target = await EnterpriseProfile.findOne({ _id: id, organizationId: actor.organization._id });
+  if (!target) return res.status(404).json({ success: false, error: "Enterprise user not found" });
+  if (!canManageMember(actor, target)) return res.status(403).json({ success: false, error: "You cannot message this user" });
+
+  const fromName = actor.profile?.fullName || actor.member?.fullName || "Someone";
+
+  const knock = await EnterpriseKnock.create({
+    organizationId: actor.organization._id,
+    targetUserId: target._id,
+    fromId: actor.id,
+    fromName,
+    fromRole: actor.role,
+    message,
+  });
+
+  if (process.env.BREVO_API_KEY && target.email) {
+    sendMail(
+      target.email,
+      `${fromName} knocked on your door`,
+      knockEmail({ fromName, message }),
+    ).catch((error) => console.error("Enterprise knock email failed:", error.message));
+  }
+
+  res.status(201).json({ success: true, data: { id: knock._id, targetUserId: target._id } });
 };
 
 export const uploadBrainTrainingFile = async (req, res) => {

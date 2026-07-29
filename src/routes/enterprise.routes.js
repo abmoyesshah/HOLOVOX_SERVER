@@ -17,6 +17,7 @@ import {
   getEnterpriseOrgTree,
   getEnterpriseOverview,
   getFlagWords,
+  knockEnterpriseUser,
   reparentEnterpriseUser,
   reviewBrainSuggestion,
   scanEnterpriseTranscript,
@@ -38,6 +39,7 @@ router.get("/enterprise/org-tree", asyncRoute(getEnterpriseOrgTree));
 router.post("/enterprise/users", asyncRoute(createEnterpriseUser));
 router.patch("/enterprise/users/:id/manager", asyncRoute(reparentEnterpriseUser));
 router.delete("/enterprise/users/:id", asyncRoute(deleteEnterpriseUser));
+router.post("/enterprise/users/:id/knock", asyncRoute(knockEnterpriseUser));
 
 router.get("/enterprise/brain/files", asyncRoute(getBrainTrainingFiles));
 router.delete("/enterprise/brain/files", asyncRoute(deleteBrainTrainingFiles));
